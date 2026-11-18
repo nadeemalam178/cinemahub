@@ -1,0 +1,58 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "users",
+      "fields": [
+        { "fieldPath": "email", "order": "ASC" },
+        { "fieldPath": "status", "order": "ASC" }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "fields": [
+        { "fieldPath": "lastActive", "order": "DESC" }
+      ]
+    },
+    {
+      "collectionGroup": "watchHistory",
+      "fields": [
+        { "fieldPath": "contentId", "order": "ASC" },
+        { "fieldPath": "updatedAt", "order": "DESC" }
+      ]
+    },
+    {
+      "collectionGroup": "watchlist",
+      "fields": [
+        { "fieldPath": "contentId", "order": "ASC" },
+        { "fieldPath": "addedAt", "order": "DESC" }
+      ]
+    },
+    {
+      "collectionGroup": "accessRequests",
+      "fields": [
+        { "fieldPath": "status", "order": "ASC" },
+        { "fieldPath": "createdAt", "order": "DESC" }
+      ]
+    },
+    {
+      "collectionGroup": "providers",
+      "fields": [
+        { "fieldPath": "name", "order": "ASC" },
+        { "fieldPath": "enabled", "order": "DESC" }
+      ]
+    },
+    {
+      "collectionGroup": "providerHealth",
+      "fields": [
+        { "fieldPath": "providerId", "order": "ASC" },
+        { "fieldPath": "checkedAt", "order": "DESC" }
+      ]
+    },
+    {
+      "collectionGroup": "admin",
+      "fields": [
+        { "fieldPath": "userStatus", "order": "ASC" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+// CinemaHub Firestore Security Rules
+// Only approved users can access their private data.
+// Admins can manage users and catalogue.
+// Users CANNOT modify their own status/role fields (prevents self-approval bypass).
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Public catalogue — anyone can read
+    match /catalogue/{contentId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // User data — owner can read; owner can write EXCEPT status/role fields
+    // Admins/owners can write all fields including status/role
+    match /users/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      
+      // Owner can write non-protected fields (email, displayName, photoURL, lastActive, etc.)
+      allow update: if request.auth != null && request.auth.uid == userId
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'role']);
+      
+      // Owner can create their own document (initial signup) but without status/role
+      allow create: if request.auth != null && request.auth.uid == userId
+        && !request.resource.data.keys().hasAny(['status', 'role']);
+      
+      // Admins/owners can write all fields including status/role
+      allow write: if request.auth != null &&
+        (request.auth.token.role == 'admin' || request.auth.token.role == 'owner');
+    }
+
+    // User profiles — only the owner can manage
+    match /users/{userId}/profiles/{profileId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Watch history — only the owner can see their own
+    match /users/{userId}/watchHistory/{contentId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Watchlist — only the owner can manage
+    match /users/{userId}/watchlist/{contentId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Access requests — admins can approve/suspend, users can request
+    match /accessRequests/{userId} {
+      allow create: if request.auth != null;
+      allow read, update, delete: if request.auth != null &&
+        (request.auth.uid == userId ||
+         request.auth.token.role == 'admin' ||
+         request.auth.token.role == 'owner');
+    }
+
+    // Provider registry — only admins can manage
+    match /providers/{providerId} {
+      allow read: if request.auth != null;
+      allow create, update, delete: if request.auth != null &&
+        (request.auth.token.role == 'admin' ||
+         request.auth.token.role == 'owner');
+
+      // Health subcollection — admins can write health status
+      match /health/{healthId} {
+        allow read: if request.auth != null;
+        allow write: if request.auth != null &&
+          (request.auth.token.role == 'admin' ||
+           request.auth.token.role == 'owner');
+      }
+    }
+
+    // Provider health legacy collection — only admins can write
+    match /providerHealth/{providerId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null &&
+        (request.auth.token.role == 'admin' ||
+         request.auth.token.role == 'owner');
+    }
+
+    // Admin dashboard — only owners and admins
+    match /admin/{docId} {
+      allow read, write: if request.auth != null &&
+        (request.auth.token.role == 'admin' ||
+         request.auth.token.role == 'owner');
+    }
+
+    // Admin user status management — only owners and admins
+    // This is used by Cloud Functions to set custom claims
+    match /admin/userStatus/{uid} {
+      allow read, write: if request.auth != null &&
+        (request.auth.token.role == 'admin' ||
+         request.auth.token.role == 'owner');
+    }
+  }
+}

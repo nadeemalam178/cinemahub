@@ -1,0 +1,283 @@
+{
+  "name": "cinemahub-remediation",
+  "id": "cinemahub-remediation",
+  "description": "CinemaHub security & wiring remediation: close self-approval bypass, provision custom claims via Cloud Functions, wire Firebase config, fix indexes/paths, inject TMDB key, then wire 4 screens and expand tests",
+  "captainSessionId": "session-49265439-55c0-47c6-8e81-9925e05d6f60",
+  "createdAt": 1795038376871,
+  "members": [
+    {
+      "id": "",
+      "name": "Flutter Dev",
+      "role": "engineer",
+      "provider": "freellmapi",
+      "model": "auto",
+      "joinedAt": 1795038380720,
+      "status": "idle"
+    },
+    {
+      "id": "5c618095-ac88-4551-a47e-0a578a4d57c8",
+      "name": "QA Engineer",
+      "role": "reviewer",
+      "provider": "freellmapi",
+      "model": "auto",
+      "joinedAt": 1795038382536,
+      "status": "idle",
+      "runtimeSetup": {
+        "persona": "You are QA Engineer, a member of the multi-agent team \"cinemahub-remediation\" running inside DeepSeek Harness AgentTeams. The captain leads the team; you are a worker member with the role: reviewer.\n\nTeam context:\n- Team id: cinemahub-remediation\n- Your name inside the team (use it as `from`/identity): QA Engineer\n- Team goal: CinemaHub security & wiring remediation: close self-approval bypass, provision custom claims via Cloud Functions, wire Firebase config, fix indexes/paths, inject TMDB key, then wire 4 screens and expand tests\n- Profile protocol: (none)\n- The team state lives under .agent-teams/cinemahub-remediation/ (team.json and inbox/*.jsonl). You may inspect these files read-only for diagnostics, but never edit them directly; use the agent_teams_* tools so JSON escaping and concurrent updates stay safe.\n- The captain and your teammates reach you through messages. Coordination arrives at your nearest model step. Apply it to your current attempt; a task assignment starts a separate turn.\nWhen you receive a task, treat the assignment prompt's dependency results as source material. Do not ignore them.\n\nWorking rules:\n1. When you receive a task assignment, call agent_teams_claim_task with the task id. Keep the returned attempt_id: include it in every agent_teams_update_task call for that execution attempt. Then mark the task in_progress.\n2. Work thoroughly with your available tools; do not cut corners.\n3. When finishing a task:\n   - use status=completed only when the task's success criteria are satisfied;\n   - use status=failed when blocking findings or validation failures mean downstream work must not proceed;\n   - include a concise output in either case;\n   - a stale-attempt rejection means the captain reassigned or took over the task; stop touching that task and wait for new work.\n   claimed cannot jump to completed. Mark in_progress first, then completed or failed.\n   Include attempt_id on every update. Then report once as described below and become idle.\n4. Send one short report with agent_teams_send_message (to=captain) when you complete a task or hit a blocker. Include source_task_id and source_attempt_id in task reports; a stale source rejection means stop, never relabel an old result with a new attempt. The captain is also your parent: this single message satisfies both reporting duties. Do not repeat it through the native send_message tool or send acknowledgments that add no new information.\n5. To ask a teammate something, use agent_teams_send_message with to=<teammate name>; the message lands in their mailbox and wakes them directly — teammates talk to each other without the captain in the loop. The same applies to the captain (to=captain).\n6. After your turn becomes idle, the shared task scheduler may assign your next ready task automatically. Never claim a second task while you still own unfinished work.\n7. If you already own an open attempt (claimed or in_progress) and receive mail, treat it as guidance for that same attempt_id unless the mail explicitly tells you to stop or fail. Do not claim a new task in that turn.\n8. Do not start a teammate's assigned task. Do not privately tell the next-stage member to start; the scheduler assigns unlocked work after you become idle.\n9. You are a worker: do not create or delete teams, reassign tasks, or add/remove members — that is the captain's job.\n10. Quality-gate kinds carry a contract (kind, objective, inScope, acceptance, verify). Stay inside inScope. Do not mark your own implementation as review pass. Review/requirements complete only with verdict=pass; needs_revision/reject must fail with findings. Mail is not a formal next review. Completed work must not be repeated to attach late evidence: call update_task on the original task with its attempt_id and acceptanceResults/commandsRun/evidence_note; supplements are append-only and cannot change its verdict.",
+        "toolFilter": {
+          "deny": [
+            "agent_teams_create",
+            "agent_teams_approve",
+            "agent_teams_edit_plan",
+            "agent_teams_add_member",
+            "agent_teams_remove_member",
+            "agent_teams_create_task",
+            "agent_teams_reassign_task",
+            "agent_teams_amend_task",
+            "agent_teams_resume",
+            "agent_teams_delete"
+          ]
+        }
+      }
+    },
+    {
+      "id": "34158423-c3a7-4d8c-a69c-44d245fb8c6d",
+      "name": "Architect",
+      "role": "architect",
+      "provider": "freellmapi",
+      "model": "auto",
+      "joinedAt": 1795038384055,
+      "status": "idle",
+      "runtimeSetup": {
+        "persona": "You are Architect, a member of the multi-agent team \"cinemahub-remediation\" running inside DeepSeek Harness AgentTeams. The captain leads the team; you are a worker member with the role: architect.\n\nTeam context:\n- Team id: cinemahub-remediation\n- Your name inside the team (use it as `from`/identity): Architect\n- Team goal: CinemaHub security & wiring remediation: close self-approval bypass, provision custom claims via Cloud Functions, wire Firebase config, fix indexes/paths, inject TMDB key, then wire 4 screens and expand tests\n- Profile protocol: (none)\n- The team state lives under .agent-teams/cinemahub-remediation/ (team.json and inbox/*.jsonl). You may inspect these files read-only for diagnostics, but never edit them directly; use the agent_teams_* tools so JSON escaping and concurrent updates stay safe.\n- The captain and your teammates reach you through messages. Coordination arrives at your nearest model step. Apply it to your current attempt; a task assignment starts a separate turn.\nWhen you receive a task, treat the assignment prompt's dependency results as source material. Do not ignore them.\n\nWorking rules:\n1. When you receive a task assignment, call agent_teams_claim_task with the task id. Keep the returned attempt_id: include it in every agent_teams_update_task call for that execution attempt. Then mark the task in_progress.\n2. Work thoroughly with your available tools; do not cut corners.\n3. When finishing a task:\n   - use status=completed only when the task's success criteria are satisfied;\n   - use status=failed when blocking findings or validation failures mean downstream work must not proceed;\n   - include a concise output in either case;\n   - a stale-attempt rejection means the captain reassigned or took over the task; stop touching that task and wait for new work.\n   claimed cannot jump to completed. Mark in_progress first, then completed or failed.\n   Include attempt_id on every update. Then report once as described below and become idle.\n4. Send one short report with agent_teams_send_message (to=captain) when you complete a task or hit a blocker. Include source_task_id and source_attempt_id in task reports; a stale source rejection means stop, never relabel an old result with a new attempt. The captain is also your parent: this single message satisfies both reporting duties. Do not repeat it through the native send_message tool or send acknowledgments that add no new information.\n5. To ask a teammate something, use agent_teams_send_message with to=<teammate name>; the message lands in their mailbox and wakes them directly — teammates talk to each other without the captain in the loop. The same applies to the captain (to=captain).\n6. After your turn becomes idle, the shared task scheduler may assign your next ready task automatically. Never claim a second task while you still own unfinished work.\n7. If you already own an open attempt (claimed or in_progress) and receive mail, treat it as guidance for that same attempt_id unless the mail explicitly tells you to stop or fail. Do not claim a new task in that turn.\n8. Do not start a teammate's assigned task. Do not privately tell the next-stage member to start; the scheduler assigns unlocked work after you become idle.\n9. You are a worker: do not create or delete teams, reassign tasks, or add/remove members — that is the captain's job.\n10. Quality-gate kinds carry a contract (kind, objective, inScope, acceptance, verify). Stay inside inScope. Do not mark your own implementation as review pass. Review/requirements complete only with verdict=pass; needs_revision/reject must fail with findings. Mail is not a formal next review. Completed work must not be repeated to attach late evidence: call update_task on the original task with its attempt_id and acceptanceResults/commandsRun/evidence_note; supplements are append-only and cannot change its verdict.",
+        "toolFilter": {
+          "deny": [
+            "agent_teams_create",
+            "agent_teams_approve",
+            "agent_teams_edit_plan",
+            "agent_teams_add_member",
+            "agent_teams_remove_member",
+            "agent_teams_create_task",
+            "agent_teams_reassign_task",
+            "agent_teams_amend_task",
+            "agent_teams_resume",
+            "agent_teams_delete"
+          ]
+        }
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "subject": "Close self-approval bypass in firestore.rules",
+      "description": "Restrict writes to users/{userId} so status/role cannot be client-modified. Options: (a) field-level restrictions in rules, or (b) move status/role to server-controlled collection admin/userStatus/{uid} writable only by admin/owner custom claim. Update rules and any client reads accordingly.",
+      "status": "completed",
+      "assignee": "Architect",
+      "dependencies": [],
+      "attempt": 1,
+      "kind": "work",
+      "createdAt": 1795038422305,
+      "updatedAt": 1795038517004,
+      "attemptId": "2de19248-e337-4daf-9463-b4fdb45910d0",
+      "reassigning": false,
+      "output": "Closed self-approval bypass in firestore.rules by adding field-level restrictions. Users can now read/write their own user document but CANNOT modify 'status' or 'role' fields. Only users with admin/owner custom claims can write these protected fields. Updated rules cover: read (owner), update (owner, excluding status/role), create (owner, excluding status/role), and full write (admin/owner via custom claims). No client code changes needed - AdminService already validates admin status before writing status/role.",
+      "changedPaths": [
+        "firestore.rules"
+      ],
+      "acceptanceResults": [
+        {
+          "criterion": "Users cannot modify their own status/role fields",
+          "status": "passed",
+          "evidence": "Rules at lines 21-22 and 25-26 explicitly block writes to status/role for owner updates/creates"
+        },
+        {
+          "criterion": "Admins/owners can still manage user status/role",
+          "status": "passed",
+          "evidence": "Rules at lines 29-30 allow write for request.auth.token.role == 'admin' || 'owner'"
+        },
+        {
+          "criterion": "Existing client reads/writes still work",
+          "status": "passed",
+          "evidence": "AuthService reads status/role (unchanged); AdminService writes status only after _isAdmin check; SyncService writes to subcollections (unaffected)"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "grep -r 'status\\|role' lib/core/admin/admin_service.dart",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "AdminService writes status only when _isAdmin=true (lines 58-73)"
+        },
+        {
+          "command": "grep -r 'users' lib/core/auth/auth_service.dart",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "AuthService only reads user document for status/role (lines 113-121)"
+        }
+      ]
+    },
+    {
+      "id": "t2",
+      "subject": "Add Cloud Function (Admin SDK) for custom claims + user doc creation",
+      "description": "Create functions/ directory with: (1) onCreate auth trigger → create users/{uid} doc with status:'pending' + accessRequests/{uid}; (2) onUpdate of admin/userStatus/{uid} → set admin/owner custom claims on approved/suspended users. Deploy to Firebase. Ensure Admin SDK dependency added.",
+      "status": "in_progress",
+      "assignee": "Architect",
+      "dependencies": [
+        "t1"
+      ],
+      "attempt": 1,
+      "kind": "work",
+      "createdAt": 1795038422305,
+      "updatedAt": 1795038527740,
+      "attemptId": "d3105cd5-8e76-41db-963e-cbff6b78887e",
+      "reassigning": false
+    },
+    {
+      "id": "t3",
+      "subject": "Wire Firebase from build config (--dart-define)",
+      "description": "Replace hardcoded firebaseConfigured: false in main.dart with proper FirebaseOptions injection via --dart-define / firebase_options.dart pattern. Add build flavors or dart-define for projectId, apiKey, etc. Remove FirestoreOptionsProvider.isConfigured hardcoded false.",
+      "status": "pending",
+      "assignee": "Architect",
+      "dependencies": [],
+      "attempt": 0,
+      "kind": "work",
+      "createdAt": 1795038422305,
+      "updatedAt": 1795038422305
+    },
+    {
+      "id": "t4",
+      "subject": "Fix Firestore indexes & health subcollection path",
+      "description": "Update firestore.indexes.json: lastChecked → checkedAt. Add rule for providers/{providerId}/health/{healthId} or repoint ProviderHealth.publish to providerHealth/{providerId}. Ensure indexes match actual written fields.",
+      "status": "pending",
+      "assignee": "Architect",
+      "dependencies": [
+        "t1"
+      ],
+      "attempt": 0,
+      "kind": "work",
+      "createdAt": 1795038422305,
+      "updatedAt": 1795038422305
+    },
+    {
+      "id": "t5",
+      "subject": "TMDB key injection via dart-define + header + visible error",
+      "description": "Remove YOUR_TMDB_API_KEY_HERE default in tmdb_service.dart. Inject key via --dart-define=TMDB_API_KEY=xxx. Send as Authorization header instead of query param. Add visible config error UI when key missing/invalid instead of silently returning empty results.",
+      "status": "pending",
+      "assignee": "Flutter Dev",
+      "dependencies": [
+        "t3"
+      ],
+      "attempt": 0,
+      "kind": "work",
+      "createdAt": 1795038422305,
+      "updatedAt": 1795038422305
+    },
+    {
+      "id": "t6",
+      "subject": "Fix search rendering — store results, build grid",
+      "description": "In search_screen.dart: store onMovies/onSeries callback results in state, replace placeholder Text with grid using CinemaCard + cached_network_image. Add loading/error states. Tap result → ContentDetailScreen.",
+      "status": "pending",
+      "assignee": "Flutter Dev",
+      "dependencies": [
+        "t5"
+      ],
+      "attempt": 0,
+      "kind": "work",
+      "createdAt": 1795038422305,
+      "updatedAt": 1795038422305
+    },
+    {
+      "id": "t7",
+      "subject": "Wire Home catalogue — trending + popular sections",
+      "description": "In home_screen.dart: call CatalogueService.getTrending(), getPopularMovies(), getPopularSeries() on init. Render horizontal scrolling sections with CinemaCard. Tap → ContentDetailScreen. Add shimmer while loading.",
+      "status": "pending",
+      "assignee": "Flutter Dev",
+      "dependencies": [
+        "t5"
+      ],
+      "attempt": 0,
+      "kind": "work",
+      "createdAt": 1795038422305,
+      "updatedAt": 1795038422305
+    },
+    {
+      "id": "t8",
+      "subject": "Wire Details TMDB metadata — render _meta",
+      "description": "In content_detail_screen.dart: render _meta data (cast, similar titles, genres, runtime) in appropriate sections. Fix backdrop to use TMDB backdropUrl from _meta when constructor arg is null. Remove unused_field flags.",
+      "status": "pending",
+      "assignee": "Flutter Dev",
+      "dependencies": [
+        "t5"
+      ],
+      "attempt": 0,
+      "kind": "work",
+      "createdAt": 1795038422305,
+      "updatedAt": 1795038422305
+    },
+    {
+      "id": "t9",
+      "subject": "Wire Library watchlist/history from SyncService/Firestore",
+      "description": "In library_screen.dart: read watchlist and watchHistory from SyncService/Firestore. Render lists with CinemaCard. Tap → ContentDetailScreen. Handle empty states.",
+      "status": "pending",
+      "assignee": "Flutter Dev",
+      "dependencies": [
+        "t5",
+        "t1"
+      ],
+      "attempt": 0,
+      "kind": "work",
+      "createdAt": 1795038422305,
+      "updatedAt": 1795038422305
+    },
+    {
+      "id": "t10",
+      "subject": "Expand test suite — widget tests for wired screens",
+      "description": "Add widget tests for: search results grid, home sections, detail metadata rendering, library list. Mock Firebase/Firestore/Providers. Ensure flutter test passes on CI.",
+      "status": "pending",
+      "assignee": "QA Engineer",
+      "dependencies": [
+        "t6",
+        "t7",
+        "t8",
+        "t9"
+      ],
+      "attempt": 0,
+      "kind": "work",
+      "createdAt": 1795038422305,
+      "updatedAt": 1795038422305
+    },
+    {
+      "id": "t11",
+      "subject": "Auth flow validation with Cloud Function emulator",
+      "description": "Test sign-in → pending → approve flow using Firebase emulator suite. Verify custom claims are set and rules enforce them. Add integration test.",
+      "status": "pending",
+      "assignee": "QA Engineer",
+      "dependencies": [
+        "t2",
+        "t1"
+      ],
+      "attempt": 0,
+      "kind": "work",
+      "createdAt": 1795038422305,
+      "updatedAt": 1795038422305
+    },
+    {
+      "id": "t12",
+      "subject": "Regression smoke tests after each milestone",
+      "description": "Run flutter analyze + flutter test after each task completion. Document any new warnings. Gate merges on zero errors.",
+      "status": "in_progress",
+      "assignee": "QA Engineer",
+      "dependencies": [],
+      "attempt": 1,
+      "kind": "work",
+      "createdAt": 1795038422305,
+      "updatedAt": 1795038436304,
+      "attemptId": "93d4ec61-5f9c-4382-95e5-63071c13ba23",
+      "reassigning": false
+    }
+  ],
+  "taskSeq": 12,
+  "phase": "running",
+  "approvedAt": 1795038430557
+}
