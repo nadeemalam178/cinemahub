@@ -34,7 +34,6 @@ class AuthService extends ChangeNotifier {
       auth: null,
       firestore: null,
       googleSignIn: GoogleSignIn.instance,
-      skipFirebaseInit: true,
     );
   }
 
@@ -42,16 +41,13 @@ class AuthService extends ChangeNotifier {
     FirebaseAuth? auth,
     FirebaseFirestore? firestore,
     GoogleSignIn? googleSignIn,
-    bool skipFirebaseInit = false,
   })  : _auth = auth,
         _firestore = firestore,
-        _googleSignIn = googleSignIn ?? GoogleSignIn.instance,
-        _skipFirebaseInit = skipFirebaseInit;
+        _googleSignIn = googleSignIn ?? GoogleSignIn.instance;
 
   final FirebaseAuth? _auth;
   final FirebaseFirestore? _firestore;
   final GoogleSignIn _googleSignIn;
-  final bool _skipFirebaseInit;
 
   AuthState _state = AuthState.loading;
   AuthState get state => _state;
