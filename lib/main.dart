@@ -15,7 +15,6 @@ import 'core/admin/admin_service.dart';
 import 'core/providers/provider_registry.dart';
 import 'core/providers/stremio_adapter.dart';
 import 'core/player/playback_engine.dart';
-import 'core/theme/widgets.dart';
 import 'package:dio/dio.dart' hide Response;
 
 void main() async {
@@ -34,7 +33,9 @@ void main() async {
   await themeProvider.load();
 
   final connectivityProvider = ConnectivityProvider();
-  final authProvider = AuthService();
+  final authProvider = firebaseConfigured
+      ? AuthService.production()
+      : AuthService.test();
   final syncService = SyncService(
     auth: authProvider,
     connectivity: connectivityProvider,

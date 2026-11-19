@@ -19,17 +19,39 @@ enum AuthState { loading, signedOut, pendingApproval, approved, suspended }
 ///  * Never lets a client promote itself or approve its own account — those
 ///    decisions live in Firestore security rules and owner-only logic.
 class AuthService extends ChangeNotifier {
+  // Production factory that requires Firebase initialization
+  factory AuthService.production({GoogleSignIn? googleSignIn}) {
+    return AuthService(
+      auth: FirebaseAuth.instance,
+      firestore: FirebaseFirestore.instance,
+      googleSignIn: googleSignIn,
+    );
+  }
+
+  // Test factory that skips Firebase initialization
+  factory AuthService.test() {
+    return AuthService(
+      auth: null,
+      firestore: null,
+      googleSignIn: GoogleSignIn.instance,
+      skipFirebaseInit: true,
+    );
+  }
+
   AuthService({
     FirebaseAuth? auth,
     FirebaseFirestore? firestore,
     GoogleSignIn? googleSignIn,
-  })  : _auth = auth ?? FirebaseAuth.instance,
-        _firestore = firestore ?? FirebaseFirestore.instance,
-        _googleSignIn = googleSignIn ?? GoogleSignIn.instance;
+    bool skipFirebaseInit = false,
+  })  : _auth = auth,
+        _firestore = firestore,
+        _googleSignIn = googleSignIn ?? GoogleSignIn.instance,
+        _skipFirebaseInit = skipFirebaseInit;
 
-  final FirebaseAuth _auth;
-  final FirebaseFirestore _firestore;
+  final FirebaseAuth? _auth;
+  final FirebaseFirestore? _firestore;
   final GoogleSignIn _googleSignIn;
+  final bool _skipFirebaseInit;
 
   AuthState _state = AuthState.loading;
   AuthState get state => _state;
@@ -53,13 +75,13 @@ class AuthService extends ChangeNotifier {
   /// Called from main() after optional Firebase wiring.
   void initialize({required bool firebaseConfigured}) {
     _firebaseReady = firebaseConfigured;
-    if (!firebaseConfigured) {
+    if (!firebaseConfigured || _auth == null) {
       _state = AuthState.signedOut;
       _configError = DefaultFirebaseOptions.configurationStatus;
       notifyListeners();
       return;
     }
-    _authSub = _auth.authStateChanges().listen(_onAuthChanged);
+    _authSub = _auth!.authStateChanges().listen(_onAuthChanged);
   }
 
   void _onAuthChanged(User? user) async {
@@ -77,6 +99,11 @@ class AuthService extends ChangeNotifier {
   Future<void> _refreshAccountStatus() async {
     final user = _user;
     if (user == null) return;
+    if (_firestore == null) {
+      _state = AuthState.signedOut;
+      notifyListeners();
+      return;
+    }
     try {
       final doc = await _firestore.collection('users').doc(user.uid).get();
       if (!doc.exists) {
@@ -103,7 +130,7 @@ class AuthService extends ChangeNotifier {
   }
 
   Future<void> signInWithGoogle() async {
-    if (!_firebaseReady) {
+    if (!_firebaseReady || _auth == null) {
       throw AuthConfigException(
         _configError ?? 'Firebase configuration is missing.',
       );
@@ -122,7 +149,7 @@ class AuthService extends ChangeNotifier {
       final credential = GoogleAuthProvider.credential(
         idToken: idToken,
       );
-      await _auth.signInWithCredential(credential);
+      await _auth!.signInWithCredential(credential);
       // _onAuthChanged will drive state.
     } on FirebaseAuthException catch (e) {
       throw AuthConfigException(
@@ -139,7 +166,9 @@ class AuthService extends ChangeNotifier {
 
   Future<void> signOut() async {
     await _googleSignIn.signOut();
-    await _auth.signOut();
+    if (_auth != null) {
+      await _auth.signOut();
+    }
     _user = null;
     _isAdmin = false;
     _state = AuthState.signedOut;
