@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/catalogue/catalogue_service.dart';
-import '../../core/theme/cinemahub_colors.dart';
 import '../../core/theme/cinemahub_tokens.dart';
 import '../../core/theme/widgets.dart';
+import '../home/home_screen.dart' show MovieCard;
 
 /// Search across movies and series with TMDB integration.
 class SearchScreen extends StatefulWidget {
@@ -18,6 +18,8 @@ class _SearchScreenState extends State<SearchScreen> {
   final _controller = TextEditingController();
   String _query = '';
   bool _loading = false;
+  List<Map<String, dynamic>> _movies = [];
+  List<Map<String, dynamic>> _series = [];
 
   @override
   void dispose() {
@@ -88,10 +90,16 @@ class _SearchScreenState extends State<SearchScreen> {
     catalogue.search(
       query: query,
       onMovies: (movies) {
-        setState(() => _loading = false);
+        setState(() {
+          _movies = movies;
+          _loading = false;
+        });
       },
       onSeries: (series) {
-        setState(() => _loading = false);
+        setState(() {
+          _series = series;
+          _loading = false;
+        });
       },
     );
   }
@@ -101,10 +109,55 @@ class _SearchScreenState extends State<SearchScreen> {
       return const LoadingState(message: 'Searching…');
     }
 
-    // This is a simplified UI. In a real implementation, you would
-    // show the actual search results from the catalogue service.
-    return const Center(
-      child: Text('Search results would appear here'),
+    final hasResults = _movies.isNotEmpty || _series.isNotEmpty;
+    if (!hasResults) {
+      return const EmptyState(
+        icon: Icons.search_off_rounded,
+        title: 'No results found',
+        message: 'Try a different search term.',
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 16,
+        vertical: CinemahubSpacing.md,
+      ),
+      children: [
+        if (_movies.isNotEmpty) ...[
+          SectionHeader(
+            title: 'Movies (${_movies.length})',
+            trailing: null,
+          ),
+          const SizedBox(height: CinemahubSpacing.md),
+          _buildResultsGrid(_movies),
+          const SizedBox(height: CinemahubSpacing.lg),
+        ],
+        if (_series.isNotEmpty) ...[
+          SectionHeader(
+            title: 'TV Series (${_series.length})',
+            trailing: null,
+          ),
+          const SizedBox(height: CinemahubSpacing.md),
+          _buildResultsGrid(_series),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildResultsGrid(List<Map<String, dynamic>> items) {
+    return SizedBox(
+      height: 210,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: items.length,
+        separatorBuilder: (_, _) =>
+            const SizedBox(width: 12),
+        itemBuilder: (context, i) {
+          final item = items[i];
+          return MovieCard(item: item);
+        },
+      ),
     );
   }
 }
