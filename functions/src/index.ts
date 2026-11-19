@@ -56,7 +56,7 @@ export const onUserCreate = functions.auth.user().onCreate(async (user) => {
  * }
  */
 export const onUserStatusUpdate = functions.firestore
-  .document("admin/userStatus/{uid}")
+  .document("admin/userStatus/users/{uid}")
   .onUpdate(async (change, context) => {
     const uid = context.params.uid;
     const before = change.before.data();
