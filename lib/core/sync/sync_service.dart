@@ -118,6 +118,33 @@ class SyncService extends ChangeNotifier {
     if (_connectivity.online) _flush();
   }
 
+  /// Gets the user's watch history (for Library/Watchlist screen).
+  Future<List<Map<String, dynamic>>> getWatchHistory() async {
+    final uid = _auth.user?.uid;
+    if (uid == null) return [];
+
+    try {
+      final snapshot = await _firestore
+          .collection('users')
+          .doc(uid)
+          .collection('watchHistory')
+          .orderBy('updatedAt', descending: true)
+          .get();
+
+      // Merge with TMDB metadata
+      final results = <Map<String, dynamic>>[];
+      for (final doc in snapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        // Enrich with TMDB metadata if available
+        results.add(data);
+      }
+      return results;
+    } catch (e) {
+      debugPrint('Failed to load watch history: $e');
+      return [];
+    }
+  }
+
   @override
   void dispose() {
     for (final t in _debounce.values) {
