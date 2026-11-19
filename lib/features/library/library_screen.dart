@@ -72,7 +72,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return ListView.separated(
       padding: const EdgeInsets.all(CinemahubSpacing.lg),
       itemCount: _watchHistory.length,
-      separatorBuilder: (_, __) => const SizedBox(height: CinemahubSpacing.md),
+      separatorBuilder: (context, index) => const SizedBox(height: CinemahubSpacing.md),
       itemBuilder: (context, index) {
         final item = _watchHistory[index];
         return _WatchListItem(item: item);
@@ -136,7 +136,7 @@ class _WatchListItem extends StatelessWidget {
                   width: 80,
                   height: 120,
                   fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Container(
+                  errorBuilder: (context, error, stackTrace) => Container(
                     width: 80,
                     height: 120,
                     decoration: BoxDecoration(

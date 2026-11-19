@@ -18,13 +18,15 @@ import '../auth/auth_service.dart';
 /// promote itself to admin — that's enforced by rules.
 class AdminService extends ChangeNotifier {
   AdminService({
-    required AuthService auth,
+    required this._auth,
     FirebaseFirestore? firestore,
-  }) : _auth = auth,
-       _firestore = firestore ?? FirebaseFirestore.instance;
+    this._userStream,
+    this._providerStream,
+  }) : _firestoreInstance = firestore;
 
   final AuthService _auth;
-  final FirebaseFirestore _firestore;
+  final FirebaseFirestore? _firestoreInstance;
+  FirebaseFirestore get _firestore => _firestoreInstance ?? FirebaseFirestore.instance;
 
   bool _isAdmin = false;
   bool get isAdmin => _isAdmin;
@@ -33,7 +35,11 @@ class AdminService extends ChangeNotifier {
   Stream<List<Map<String, dynamic>>> get userStream => _userStream ??= _firestore
       .collection('users')
       .snapshots()
-      .map((snap) => snap.docs.map((doc) => doc.data()).toList());
+      .map((snap) => snap.docs.map((doc) {
+        final data = doc.data();
+        data['uid'] ??= doc.id;
+        return data;
+      }).toList());
 
   Stream<List<Map<String, dynamic>>>? _providerStream;
   Stream<List<Map<String, dynamic>>> get providerStream => _providerStream ??= _firestore
@@ -62,6 +68,22 @@ class AdminService extends ChangeNotifier {
       'approvedAt': FieldValue.serverTimestamp(),
       'approvedBy': _auth.user?.uid,
     });
+    // Synchronize admin status document so Cloud Function triggers custom claims
+    try {
+      await _firestore
+          .collection('admin')
+          .doc('userStatus')
+          .collection('users')
+          .doc(userId)
+          .set({
+        'status': 'approved',
+        'role': 'user',
+        'updatedBy': _auth.user?.uid,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Admin status collection sync note: $e');
+    }
   }
 
   Future<void> suspendUser(String userId) async {
@@ -71,6 +93,22 @@ class AdminService extends ChangeNotifier {
       'suspendedAt': FieldValue.serverTimestamp(),
       'suspendedBy': _auth.user?.uid,
     });
+    // Synchronize admin status document so Cloud Function triggers custom claims
+    try {
+      await _firestore
+          .collection('admin')
+          .doc('userStatus')
+          .collection('users')
+          .doc(userId)
+          .set({
+        'status': 'suspended',
+        'role': 'user',
+        'updatedBy': _auth.user?.uid,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Admin status collection sync note: $e');
+    }
   }
 
   Future<void> enableProvider(String providerId) async {

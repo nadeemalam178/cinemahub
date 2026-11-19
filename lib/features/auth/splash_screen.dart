@@ -30,6 +30,11 @@ class _SplashScreenState extends State<SplashScreen>
     _scale = Tween<double>(begin: 0.85, end: 1.0).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
     );
+    _controller.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        widget.onFinished();
+      }
+    });
     _controller.forward();
   }
 

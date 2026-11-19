@@ -15,7 +15,11 @@ service cloud.firestore {
     // User data — owner can read; owner can write EXCEPT status/role fields
     // Admins/owners can write all fields including status/role
     match /users/{userId} {
-      allow read: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null && (
+        request.auth.uid == userId ||
+        request.auth.token.role == 'admin' ||
+        request.auth.token.role == 'owner'
+      );
       
       // Owner can write non-protected fields (email, displayName, photoURL, lastActive, etc.)
       allow update: if request.auth != null && request.auth.uid == userId

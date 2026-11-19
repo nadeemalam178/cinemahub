@@ -4,7 +4,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
 import 'provider_model.dart';
-import 'provider_health.dart';
 
 /// Registry of authorised content providers.
 ///
@@ -18,9 +17,10 @@ import 'provider_health.dart';
 /// is server-side and enforced by Firestore rules.
 class ProviderRegistry extends ChangeNotifier {
   ProviderRegistry({FirebaseFirestore? firestore})
-    : _firestore = firestore ?? FirebaseFirestore.instance;
+    : _firestoreInstance = firestore;
 
-  final FirebaseFirestore _firestore;
+  final FirebaseFirestore? _firestoreInstance;
+  FirebaseFirestore get _firestore => _firestoreInstance ?? FirebaseFirestore.instance;
 
   final Map<String, ProviderModel> _providers = {};
   StreamSubscription? _sub;

@@ -1,9 +1,7 @@
 import 'dart:async';
 
-import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
-import '../providers/provider_health.dart';
 import '../providers/provider_model.dart';
 import '../providers/provider_registry.dart';
 import '../providers/stremio_adapter.dart';
@@ -38,7 +36,7 @@ class PlaybackResult {
 ///  * Fetch streams via [StremioAdapter] and aggregate results.
 ///  * Return the first viable stream when [requireOne] is true.
 class PlaybackEngine extends ChangeNotifier {
-  PlaybackEngine({required StremioAdapter adapter}) : _adapter = adapter;
+  PlaybackEngine({required this._adapter});
 
   final StremioAdapter _adapter;
 

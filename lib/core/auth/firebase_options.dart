@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+
 /// Default Firebase options for CinemaHub using --dart-define injection.
 ///
 /// Build with:
@@ -55,6 +56,8 @@
 ///               --dart-define=FIREBASE_WINDOWS_AUTH_DOMAIN=xxx \
 ///               --dart-define=FIREBASE_WINDOWS_DATABASE_URL=xxx \
 ///               --dart-define=FIREBASE_WINDOWS_MEASUREMENT_ID=xxx
+library;
+
 
 import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
 import 'dart:io' show Platform;

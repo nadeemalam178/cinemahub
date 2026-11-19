@@ -14,7 +14,7 @@ enum AuthState { loading, signedOut, pendingApproval, approved, suspended }
 ///
 /// Responsibilities:
 ///  * Google Sign-In and session restoration.
-///  * Account status (pending / approved / suspended) from Firestore.
+///  * Account status (pending / approved / suspended) from Firestore with live sync.
 ///  * Sign-out and account switching.
 ///  * Never lets a client promote itself or approve its own account — those
 ///    decisions live in Firestore security rules and owner-only logic.
@@ -24,7 +24,7 @@ class AuthService extends ChangeNotifier {
     return AuthService(
       auth: FirebaseAuth.instance,
       firestore: FirebaseFirestore.instance,
-      googleSignIn: googleSignIn,
+      googleSignIn: googleSignIn ?? GoogleSignIn.instance,
     );
   }
 
@@ -38,12 +38,10 @@ class AuthService extends ChangeNotifier {
   }
 
   AuthService({
-    FirebaseAuth? auth,
-    FirebaseFirestore? firestore,
+    this._auth,
+    this._firestore,
     GoogleSignIn? googleSignIn,
-  })  : _auth = auth,
-        _firestore = firestore,
-        _googleSignIn = googleSignIn ?? GoogleSignIn.instance;
+  })  : _googleSignIn = googleSignIn ?? GoogleSignIn.instance;
 
   final FirebaseAuth? _auth;
   final FirebaseFirestore? _firestore;
@@ -66,30 +64,73 @@ class AuthService extends ChangeNotifier {
   bool get isAdmin => _isAdmin;
 
   StreamSubscription<User?>? _authSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _userDocSub;
   Stream<AuthState> get stateStream => Stream.value(_state);
 
   /// Called from main() after optional Firebase wiring.
   void initialize({required bool firebaseConfigured}) {
     _firebaseReady = firebaseConfigured;
+    const serverClientId = String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID', defaultValue: '');
+    if (serverClientId.isNotEmpty) {
+      _googleSignIn.initialize(serverClientId: serverClientId);
+    }
     if (!firebaseConfigured || _auth == null) {
       _state = AuthState.signedOut;
       _configError = DefaultFirebaseOptions.configurationStatus;
       notifyListeners();
       return;
     }
-    _authSub = _auth!.authStateChanges().listen(_onAuthChanged);
+    _authSub = _auth.authStateChanges().listen(_onAuthChanged);
   }
 
   void _onAuthChanged(User? user) async {
     _user = user;
+    await _userDocSub?.cancel();
+    _userDocSub = null;
+
     if (user == null) {
       _state = AuthState.signedOut;
       _isAdmin = false;
       notifyListeners();
       return;
     }
-    // Validate account status from Firestore.
-    await _refreshAccountStatus();
+
+    // Set up real-time listener on user's status document in Firestore
+    if (_firestore != null) {
+      _userDocSub = _firestore
+          .collection('users')
+          .doc(user.uid)
+          .snapshots()
+          .listen(
+        (doc) {
+          if (!doc.exists) {
+            _state = AuthState.pendingApproval;
+            _isAdmin = false;
+            notifyListeners();
+            return;
+          }
+          final data = doc.data();
+          final status = (data?['status'] as String?) ?? 'pending';
+          final role = data?['role'] as String?;
+          _isAdmin = role == 'owner' || role == 'admin';
+          switch (status) {
+            case 'approved':
+              _state = AuthState.approved;
+            case 'suspended':
+              _state = AuthState.suspended;
+            default:
+              _state = AuthState.pendingApproval;
+          }
+          notifyListeners();
+        },
+        onError: (e) {
+          debugPrint('AuthService user doc stream error: $e');
+          _refreshAccountStatus();
+        },
+      );
+    } else {
+      await _refreshAccountStatus();
+    }
   }
 
   Future<void> _refreshAccountStatus() async {
@@ -134,19 +175,18 @@ class AuthService extends ChangeNotifier {
     try {
       // google_sign_in v7.x: authenticate() returns GoogleSignInAccount directly
       final GoogleSignInAccount account = await _googleSignIn.authenticate();
-      // In v7.x, account.authentication is a GoogleSignInAuthentication object
-      // It provides idToken and serverAuthCode (not accessToken directly)
       final authInfo = account.authentication;
       final idToken = authInfo.idToken;
       if (idToken == null) {
-        throw AuthConfigException('Google sign-in failed: No ID token received');
+        throw AuthConfigException(
+          'Google sign-in failed: No ID token received. Ensure Web Client ID and SHA-1 fingerprint are registered in Firebase Console.',
+        );
       }
-      // Note: accessToken is not available in v7.x - Firebase only needs idToken
       final credential = GoogleAuthProvider.credential(
         idToken: idToken,
       );
-      await _auth!.signInWithCredential(credential);
-      // _onAuthChanged will drive state.
+      await _auth.signInWithCredential(credential);
+      // _onAuthChanged will drive state via real-time subscription.
     } on FirebaseAuthException catch (e) {
       throw AuthConfigException(
         'Google sign-in failed: ${e.message ?? e.code}',
@@ -161,6 +201,8 @@ class AuthService extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    await _userDocSub?.cancel();
+    _userDocSub = null;
     await _googleSignIn.signOut();
     if (_auth != null) {
       await _auth.signOut();
@@ -173,6 +215,7 @@ class AuthService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _userDocSub?.cancel();
     _authSub?.cancel();
     super.dispose();
   }

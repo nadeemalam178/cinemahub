@@ -46,7 +46,13 @@ class _SearchScreenState extends State<SearchScreen> {
               onChanged: (v) {
                 setState(() => _query = v);
                 if (v.trim().isNotEmpty) {
-                  _performSearch(catalogue, v);
+                  _performSearch(catalogue, v.trim());
+                } else {
+                  setState(() {
+                    _movies = [];
+                    _series = [];
+                    _loading = false;
+                  });
                 }
               },
               decoration: InputDecoration(
@@ -57,7 +63,12 @@ class _SearchScreenState extends State<SearchScreen> {
                     : IconButton(
                         onPressed: () {
                           _controller.clear();
-                          setState(() => _query = '');
+                          setState(() {
+                            _query = '';
+                            _movies = [];
+                            _series = [];
+                            _loading = false;
+                          });
                         },
                         icon: const Icon(Icons.close_rounded),
                       ),
@@ -84,18 +95,18 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _performSearch(CatalogueService catalogue, String query) {
-    if (_loading) return;
     setState(() => _loading = true);
 
     catalogue.search(
       query: query,
       onMovies: (movies) {
+        if (!mounted) return;
         setState(() {
           _movies = movies;
-          _loading = false;
         });
       },
       onSeries: (series) {
+        if (!mounted) return;
         setState(() {
           _series = series;
           _loading = false;
@@ -147,7 +158,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Widget _buildResultsGrid(List<Map<String, dynamic>> items) {
     return SizedBox(
-      height: 210,
+      height: 280,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: items.length,

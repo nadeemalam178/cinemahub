@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
@@ -38,11 +36,17 @@ class StreamResult {
       type.startsWith('video/') || type.contains('mp4') || type.contains('mkv');
 
   factory StreamResult.fromJson(Map<String, dynamic> json) {
+    final rawUrl = json['url'] as String? ?? json['externalUrl'] as String? ?? '';
+    final infoHash = json['infoHash'] as String? ?? json['hash'] as String?;
+    final finalUrl = rawUrl.isNotEmpty
+        ? rawUrl
+        : (infoHash != null && infoHash.isNotEmpty ? 'magnet:?xt=urn:btih:$infoHash' : '');
+
     return StreamResult(
       name: json['name'] as String? ?? '',
-      url: json['url'] as String? ?? '',
+      url: finalUrl,
       type: json['type'] as String? ?? 'application/octet-stream',
-      hash: json['hash'] as String?,
+      hash: infoHash,
       size: json['size']?.toInt(),
       behaviorHints:
           (json['behaviorHints'] as Map?)?.cast<String, dynamic>(),
@@ -131,20 +135,18 @@ class AddonManifest {
 /// CORS headers must be configured on the provider side; if not, requests
 /// will fail and the registry marks the provider [HealthStatus.down].
 class StremioAdapter {
-  StremioAdapter({required Dio dio}) : _dio = dio;
+  StremioAdapter({required this._dio});
 
   final Dio _dio;
 
   /// Fetch and cache the provider manifest. Returns null on error.
   Future<AddonManifest?> fetchManifest(String baseUrl) async {
     try {
-      final uri = Uri.parse(baseUrl);
-      final manifestUrl =
-          uri.scheme == ''
-              ? baseUrl
-              : '${uri.hasAbsolutePath ? '' : ''}$baseUrl/manifest.json';
+      final cleanBase = baseUrl.endsWith('/')
+          ? baseUrl.substring(0, baseUrl.length - 1)
+          : baseUrl;
 
-      final resp = await _dio.get('$baseUrl/manifest.json');
+      final resp = await _dio.get('$cleanBase/manifest.json');
       if (resp.statusCode != 200) return null;
       return AddonManifest.fromJson(resp.data as Map<String, dynamic>);
     } catch (e) {
@@ -155,7 +157,9 @@ class StremioAdapter {
 
   /// Request available streams for a piece of content.
   ///
-  /// Example payload keys: `type`, `id`, `season`, `episode`.
+  /// Conforms to Stremio Addon Protocol specification:
+  /// For movies: /stream/{type}/{id}.json
+  /// For series: /stream/{type}/{id}:{season}:{episode}.json
   Future<List<StreamResult>> fetchStreams({
     required String baseUrl,
     required String type,
@@ -164,11 +168,14 @@ class StremioAdapter {
     int? episode,
   }) async {
     try {
-      final uriBuilder = StringBuffer('$baseUrl/stream/$type/$id.json');
-      if (season != null) uriBuilder.write('?season=$season');
-      if (episode != null) uriBuilder.write('&episode=$episode');
+      final cleanBase = baseUrl.endsWith('/')
+          ? baseUrl.substring(0, baseUrl.length - 1)
+          : baseUrl;
+      final streamId =
+          (season != null && episode != null) ? '$id:$season:$episode' : id;
+      final url = '$cleanBase/stream/$type/$streamId.json';
 
-      final resp = await _dio.get(uriBuilder.toString());
+      final resp = await _dio.get(url);
       if (resp.statusCode != 200) return [];
 
       final data = resp.data as Map<String, dynamic>;
@@ -192,7 +199,10 @@ class StremioAdapter {
     required String id,
   }) async {
     try {
-      final resp = await _dio.get('$baseUrl/meta/$type/$id.json');
+      final cleanBase = baseUrl.endsWith('/')
+          ? baseUrl.substring(0, baseUrl.length - 1)
+          : baseUrl;
+      final resp = await _dio.get('$cleanBase/meta/$type/$id.json');
       if (resp.statusCode != 200) return null;
       return resp.data['meta'] as Map<String, dynamic>?;
     } catch (e) {

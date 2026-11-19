@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
@@ -18,23 +16,25 @@ import 'package:flutter/foundation.dart';
 class TmdbService {
   /// Creates a TMDB service. The API key should be provided via --dart-define.
   /// Falls back to 'YOUR_TMDB_API_KEY_HERE' if not set (shows error in UI).
-  TmdbService({String? apiKey})
+  TmdbService({String? apiKey, Dio? dio})
       : _apiKey = apiKey ??
             const String.fromEnvironment(
               'TMDB_API_KEY',
               defaultValue: 'YOUR_TMDB_API_KEY_HERE',
-            );
+            ),
+        _dio = dio ??
+            Dio(BaseOptions(
+              baseUrl: 'https://api.themoviedb.org/3',
+              connectTimeout: const Duration(seconds: 10),
+              receiveTimeout: const Duration(seconds: 10),
+            ));
 
   final String _apiKey;
+  final Dio _dio;
 
   /// Returns true if a valid TMDB API key is configured.
   bool get isConfigured =>
       _apiKey != 'YOUR_TMDB_API_KEY_HERE' && _apiKey.isNotEmpty;
-  final Dio _dio = Dio(BaseOptions(
-    baseUrl: 'https://api.themoviedb.org/3',
-    connectTimeout: const Duration(seconds: 10),
-    receiveTimeout: const Duration(seconds: 10),
-  ));
 
   /// Search for movies by query.
   Future<List<Map<String, dynamic>>> searchMovies(String query) async {

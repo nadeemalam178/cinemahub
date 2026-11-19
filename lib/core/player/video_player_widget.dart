@@ -2,6 +2,7 @@ import 'package:chewie/chewie.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/theme/cinemahub_colors.dart';
 import '../../core/theme/cinemahub_tokens.dart';
@@ -38,7 +39,7 @@ class CinemaPlayer extends StatefulWidget {
 
 class _CinemaPlayerState extends State<CinemaPlayer>
     with SingleTickerProviderStateMixin {
-  late final VideoPlayerController _controller;
+  VideoPlayerController? _controller;
   late final AnimationController _fadeController;
   ChewieController? _chewieController;
   bool _ready = false;
@@ -57,24 +58,32 @@ class _CinemaPlayerState extends State<CinemaPlayer>
 
   Future<void> _initPlayer() async {
     final url = widget.stream.url;
-    if (url.isEmpty) {
-      setState(() {
-        _errored = true;
-        _lastError = Exception('Empty stream URL.');
-      });
+    final uri = Uri.tryParse(url);
+    if (url.isEmpty || uri == null || !uri.hasScheme) {
+      if (mounted) {
+        setState(() {
+          _errored = true;
+          _lastError = Exception('Invalid or empty stream URL.');
+        });
+      }
       return;
     }
 
     try {
-      _controller = VideoPlayerController.networkUrl(Uri.parse(url));
-      await _controller.initialize();
-      if (!mounted) return;
+      final controller = VideoPlayerController.networkUrl(uri);
+      _controller = controller;
+      await controller.initialize();
+      if (!mounted) {
+        controller.dispose();
+        return;
+      }
 
+      final ratio = controller.value.aspectRatio;
       _chewieController = ChewieController(
-        videoPlayerController: _controller,
+        videoPlayerController: controller,
         autoPlay: true,
         looping: false,
-        aspectRatio: _controller.value.aspectRatio,
+        aspectRatio: ratio > 0 ? ratio : 16 / 9,
         deviceOrientationsAfterFullScreen: [
           DeviceOrientation.landscapeLeft,
           DeviceOrientation.landscapeRight,
@@ -86,12 +95,15 @@ class _CinemaPlayerState extends State<CinemaPlayer>
         ),
       );
 
-      _controller.addListener(_onVideoChanged);
-      _controller.setLooping(false);
-      _ready = true;
+      controller.addListener(_onVideoChanged);
+      controller.setLooping(false);
+      if (mounted) {
+        setState(() {
+          _ready = true;
+        });
+      }
       widget.onPlayStarted?.call();
       _fadeController.forward();
-      setState(() {});
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -102,15 +114,17 @@ class _CinemaPlayerState extends State<CinemaPlayer>
   }
 
   void _onVideoChanged() {
-    if (_controller.value.hasError) {
-      setState(() => _errored = true);
+    final c = _controller;
+    if (c != null && c.value.hasError) {
+      if (mounted) setState(() => _errored = true);
     }
   }
 
   @override
   void dispose() {
-    _controller.removeListener(_onVideoChanged);
-    _controller.dispose();
+    _controller?.removeListener(_onVideoChanged);
+    _controller?.dispose();
+    _chewieController?.dispose();
     _fadeController.dispose();
     super.dispose();
   }
@@ -120,8 +134,13 @@ class _CinemaPlayerState extends State<CinemaPlayer>
     if (_errored) {
       final builder =
           widget.errorBuilder ??
-          (e) => _ErrorFallback(error: e.toString(), stream: widget.stream);
-      return builder(_lastError!);
+          (e) => _ErrorFallback(
+                error: e.toString(),
+                stream: widget.stream,
+                allowExternal: widget.allowExternalPlayer,
+                onOpenExternal: _openExternal,
+              );
+      return builder(_lastError ?? Exception('Playback failed.'));
     }
 
     if (!_ready || _chewieController == null) {
@@ -151,10 +170,16 @@ class _CinemaPlayerState extends State<CinemaPlayer>
   Future<void> _openExternal() async {
     final url = widget.stream.url;
     if (url.isEmpty) return;
-    // The app delegates external playback to the OS chooser (see
-    // settings_provider.dart for link launching helpers). We don't import
-    // url_launcher here to keep dependencies lean — callers in higher layers
-    // can pass a callback instead if they want tight integration.
+    try {
+      final uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        await launchUrl(uri);
+      }
+    } catch (e) {
+      debugPrint('CinemaPlayer: external player launch failed: $e');
+    }
     widget.onEnded?.call();
   }
 }
@@ -184,10 +209,17 @@ class _LoadingPlaceholder extends StatelessWidget {
 }
 
 class _ErrorFallback extends StatelessWidget {
-  const _ErrorFallback({required this.error, required this.stream});
+  const _ErrorFallback({
+    required this.error,
+    required this.stream,
+    this.allowExternal = false,
+    this.onOpenExternal,
+  });
 
   final String error;
   final StreamResult stream;
+  final bool allowExternal;
+  final VoidCallback? onOpenExternal;
 
   @override
   Widget build(BuildContext context) {
@@ -224,10 +256,18 @@ class _ErrorFallback extends StatelessWidget {
                 const SizedBox(height: CinemahubSpacing.md),
                 Text(
                   'Source: ${stream.name}',
-                  style: TextStyle(
+                  style: const TextStyle(
                     color: Colors.white54,
                     fontSize: 12,
                   ),
+                ),
+              ],
+              if (allowExternal && stream.url.isNotEmpty) ...[
+                const SizedBox(height: CinemahubSpacing.lg),
+                FilledButton.tonalIcon(
+                  onPressed: onOpenExternal,
+                  icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                  label: const Text('Try opening externally'),
                 ),
               ],
             ],

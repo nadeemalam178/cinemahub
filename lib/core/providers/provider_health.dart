@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 
 import 'provider_model.dart';
 
@@ -13,8 +12,8 @@ enum HealthStatus { unknown, healthy, degraded, down }
 class ProviderHealth {
   ProviderHealth({
     required this.provider,
-    required Dio dio,
-  }) : _dio = dio;
+    required this._dio,
+  });
 
   final ProviderModel provider;
   final Dio _dio;

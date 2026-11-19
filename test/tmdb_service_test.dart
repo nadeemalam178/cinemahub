@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'tmdb_service.dart';
+import 'package:cinemahub/core/catalogue/tmdb_service.dart';
 
 void main() {
   group('TmdbService', () {

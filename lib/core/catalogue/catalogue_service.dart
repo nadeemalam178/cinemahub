@@ -15,13 +15,14 @@ import 'tmdb_service.dart';
 /// * Support local caching for performance
 class CatalogueService extends ChangeNotifier {
   CatalogueService({
-    required TmdbService tmdb,
+    required this._tmdb,
     FirebaseFirestore? firestore,
-  }) : _tmdb = tmdb,
-       _firestore = firestore ?? FirebaseFirestore.instance;
+  }) : _firestoreInstance = firestore;
 
   final TmdbService _tmdb;
-  final FirebaseFirestore _firestore;
+  final FirebaseFirestore? _firestoreInstance;
+  FirebaseFirestore get _firestore => _firestoreInstance ?? FirebaseFirestore.instance;
+  FirebaseFirestore get firestore => _firestore;
 
   final Map<String, Timer> _debounce = {};
   final Map<String, dynamic> _cache = {};

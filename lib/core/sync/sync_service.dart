@@ -13,16 +13,15 @@ import '../network/connectivity_provider.dart';
 /// queued locally when offline so they flush when connectivity returns.
 class SyncService extends ChangeNotifier {
   SyncService({
-    required AuthService auth,
-    required ConnectivityProvider connectivity,
+    required this._auth,
+    required this._connectivity,
     FirebaseFirestore? firestore,
-  }) : _auth = auth,
-       _connectivity = connectivity,
-       _firestore = firestore ?? FirebaseFirestore.instance;
+  }) : _firestoreInstance = firestore;
 
   final AuthService _auth;
   final ConnectivityProvider _connectivity;
-  final FirebaseFirestore _firestore;
+  final FirebaseFirestore? _firestoreInstance;
+  FirebaseFirestore get _firestore => _firestoreInstance ?? FirebaseFirestore.instance;
 
   final Map<String, Timer> _debounce = {};
   final List<Future<void> Function()> _pendingWrites = [];
@@ -134,7 +133,7 @@ class SyncService extends ChangeNotifier {
       // Merge with TMDB metadata
       final results = <Map<String, dynamic>>[];
       for (final doc in snapshot.docs) {
-        final data = doc.data() as Map<String, dynamic>;
+        final data = doc.data();
         // Enrich with TMDB metadata if available
         results.add(data);
       }

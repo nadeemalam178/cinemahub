@@ -123,8 +123,8 @@ class _HomeScreenState extends State<HomeScreen> {
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: 3,
-            separatorBuilder: (_, __) => const SizedBox(width: CinemahubSpacing.md),
-            itemBuilder: (_, i) => _ContentThumb(),
+            separatorBuilder: (context, index) => const SizedBox(width: CinemahubSpacing.md),
+            itemBuilder: (context, i) => _ContentThumb(),
           ),
         ),
       ],
@@ -134,7 +134,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildContentGrid(List<Map<String, dynamic>> items) {
     if (items.isEmpty) {
       return const SizedBox(
-        height: 210,
+        height: 280,
         child: Center(
           child: Text(
             'No data available',
@@ -145,11 +145,11 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     return SizedBox(
-      height: 210,
+      height: 280,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: items.length,
-        separatorBuilder: (_, __) => const SizedBox(width: CinemahubSpacing.md),
+        separatorBuilder: (context, index) => const SizedBox(width: CinemahubSpacing.md),
         itemBuilder: (_, i) {
           final item = items[i];
           return MovieCard(item: item);
@@ -223,7 +223,7 @@ class MovieCard extends StatelessWidget {
       },
       child: SizedBox(
         width: 140,
-        height: 210,
+        height: 280,
         child: CinemaCard(
           padding: EdgeInsets.zero,
           child: Column(
@@ -237,11 +237,11 @@ class MovieCard extends StatelessWidget {
                   child: CachedNetworkImage(
                     imageUrl: _imageUrl,
                     width: 140,
-                    height: 210,
+                    height: 180,
                     fit: BoxFit.cover,
-                    placeholder: (_, __) => Container(
+                    placeholder: (context, url) => Container(
                       width: 140,
-                      height: 210,
+                      height: 180,
                       decoration: BoxDecoration(
                         borderRadius: const BorderRadius.vertical(
                           top: Radius.circular(12),
@@ -249,9 +249,9 @@ class MovieCard extends StatelessWidget {
                         color: CinemahubColors.surface(isDark ? Brightness.dark : Brightness.light).withValues(alpha: 0.3),
                       ),
                     ),
-                    errorWidget: (_, __, ___) => Container(
+                    errorWidget: (context, url, error) => Container(
                       width: 140,
-                      height: 210,
+                      height: 180,
                       decoration: BoxDecoration(
                         borderRadius: const BorderRadius.vertical(
                           top: Radius.circular(12),
@@ -265,7 +265,7 @@ class MovieCard extends StatelessWidget {
               else
                 Container(
                   width: 140,
-                  height: 210,
+                  height: 180,
                   decoration: BoxDecoration(
                     borderRadius: const BorderRadius.vertical(
                       top: Radius.circular(12),

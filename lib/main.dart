@@ -20,12 +20,22 @@ import 'package:dio/dio.dart' hide Response;
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Firebase if configured via --dart-define
-  final firebaseConfigured = DefaultFirebaseOptions.isConfigured;
-  if (firebaseConfigured) {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
+  // Initialize Firebase if configured via --dart-define or native google-services.json
+  bool firebaseConfigured = false;
+  try {
+    if (DefaultFirebaseOptions.isConfigured) {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+      firebaseConfigured = true;
+    } else {
+      // Attempt native initialization (e.g. from google-services.json on Android)
+      await Firebase.initializeApp();
+      firebaseConfigured = true;
+    }
+  } catch (e) {
+    debugPrint('Firebase initialization note: $e');
+    firebaseConfigured = false;
   }
 
   // Theme is loaded before first frame to avoid a flash of the wrong theme.
@@ -110,6 +120,7 @@ class CinemaHubApp extends StatelessWidget {
         return Consumer<AuthService>(
           builder: (context, auth, _) {
             return MaterialApp(
+              key: ValueKey(auth.state),
               title: 'CinemaHub',
               debugShowCheckedModeBanner: false,
               theme: theme.buildTheme(Brightness.light),
@@ -117,9 +128,13 @@ class CinemaHubApp extends StatelessWidget {
               themeMode: theme.themeMode,
               onGenerateRoute: (settings) =>
                   router.onGenerateRoute(settings, auth.state),
-              initialRoute: auth.state == AuthState.approved
-                  ? '/home'
-                  : '/splash',
+              initialRoute: switch (auth.state) {
+                AuthState.approved => '/home',
+                AuthState.signedOut => '/signIn',
+                AuthState.pendingApproval => '/pending',
+                AuthState.suspended => '/suspended',
+                AuthState.loading => '/splash',
+              },
             );
           },
         );

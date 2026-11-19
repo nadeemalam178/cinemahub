@@ -133,7 +133,7 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
               Image.network(
                 _backdrop!,
                 fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => Container(
+                errorBuilder: (context, error, stackTrace) => Container(
                   color: CinemahubColors.surface(Brightness.dark),
                 ),
               )
@@ -282,10 +282,12 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
   }
 
   Future<void> _fetchStreams(PlaybackEngine engine, ProviderRegistry registry) async {
+    final imdbId = _meta?['imdb_id'] as String?;
+    final streamId = (imdbId != null && imdbId.isNotEmpty) ? imdbId : widget.id;
     await engine.loadStreams(
       registry: registry,
       contentType: widget.type == 'movie' ? ContentType.movie : ContentType.series,
-      id: widget.id,
+      id: streamId,
     );
   }
 }
