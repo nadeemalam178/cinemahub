@@ -3,6 +3,7 @@ name: Build APK for Beta Testing
 on:
   push:
     branches: [ master, main, develop ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ master, main, develop ]
   workflow_dispatch:
