@@ -111,11 +111,16 @@ class AuthService extends ChangeNotifier {
     try {
       // google_sign_in v7.x: authenticate() returns GoogleSignInAccount directly
       final GoogleSignInAccount account = await _googleSignIn.authenticate();
-      // account.authentication is synchronous (not Future) in v7.x
-      final GoogleSignInAuthentication auth = account.authentication;
+      // In v7.x, account.authentication is a GoogleSignInAuthentication object
+      // It provides idToken and serverAuthCode (not accessToken directly)
+      final authInfo = account.authentication;
+      final idToken = authInfo.idToken;
+      if (idToken == null) {
+        throw AuthConfigException('Google sign-in failed: No ID token received');
+      }
+      // Note: accessToken is not available in v7.x - Firebase only needs idToken
       final credential = GoogleAuthProvider.credential(
-        idToken: auth.idToken ?? '',
-        accessToken: auth.accessToken ?? '',
+        idToken: idToken,
       );
       await _auth.signInWithCredential(credential);
       // _onAuthChanged will drive state.
