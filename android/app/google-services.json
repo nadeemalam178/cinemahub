@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "222608500817",
+    "project_id": "cinemahub-90f57",
+    "storage_bucket": "cinemahub-90f57.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:222608500817:android:776e4dafdaedcf80107070",
+        "android_client_info": {
+          "package_name": "com.cinemahub.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDY0ESUF9ZIEPCgDoue5qeuMfLbxYcdHnE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

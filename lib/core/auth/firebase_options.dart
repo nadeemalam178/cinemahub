@@ -23,7 +23,7 @@
 ///               --dart-define=FIREBASE_IOS_AUTH_DOMAIN=xxx \
 ///               --dart-define=FIREBASE_IOS_DATABASE_URL=xxx \
 ///               --dart-define=FIREBASE_IOS_MEASUREMENT_ID=xxx \
-///               --dart-define=FIREBASE_IOS_BUNDLE_ID=com.cinemahub.cinemahub
+///               --dart-define=FIREBASE_IOS_BUNDLE_ID=com.cinemahub.app
 ///
 /// For Web, also add:
 ///   --dart-define=FIREBASE_WEB_API_KEY=xxx \
@@ -44,7 +44,7 @@
 ///               --dart-define=FIREBASE_MACOS_AUTH_DOMAIN=xxx \
 ///               --dart-define=FIREBASE_MACOS_DATABASE_URL=xxx \
 ///               --dart-define=FIREBASE_MACOS_MEASUREMENT_ID=xxx \
-///               --dart-define=FIREBASE_MACOS_BUNDLE_ID=com.cinemahub.cinemahub
+///               --dart-define=FIREBASE_MACOS_BUNDLE_ID=com.cinemahub.app
 ///
 /// For Windows, also add:
 ///   --dart-define=FIREBASE_WINDOWS_API_KEY=xxx \
@@ -153,7 +153,7 @@ class DefaultFirebaseOptions {
   static const String _iosAuthDomain = String.fromEnvironment('FIREBASE_IOS_AUTH_DOMAIN', defaultValue: '');
   static const String _iosDatabaseUrl = String.fromEnvironment('FIREBASE_IOS_DATABASE_URL', defaultValue: '');
   static const String _iosMeasurementId = String.fromEnvironment('FIREBASE_IOS_MEASUREMENT_ID', defaultValue: '');
-  static const String _iosBundleId = String.fromEnvironment('FIREBASE_IOS_BUNDLE_ID', defaultValue: 'com.cinemahub.cinemahub');
+  static const String _iosBundleId = String.fromEnvironment('FIREBASE_IOS_BUNDLE_ID', defaultValue: 'com.cinemahub.app');
 
   // macOS values from --dart-define
   static const String _macosApiKey = String.fromEnvironment('FIREBASE_MACOS_API_KEY', defaultValue: '');
@@ -164,7 +164,7 @@ class DefaultFirebaseOptions {
   static const String _macosAuthDomain = String.fromEnvironment('FIREBASE_MACOS_AUTH_DOMAIN', defaultValue: '');
   static const String _macosDatabaseUrl = String.fromEnvironment('FIREBASE_MACOS_DATABASE_URL', defaultValue: '');
   static const String _macosMeasurementId = String.fromEnvironment('FIREBASE_MACOS_MEASUREMENT_ID', defaultValue: '');
-  static const String _macosBundleId = String.fromEnvironment('FIREBASE_MACOS_BUNDLE_ID', defaultValue: 'com.cinemahub.cinemahub');
+  static const String _macosBundleId = String.fromEnvironment('FIREBASE_MACOS_BUNDLE_ID', defaultValue: 'com.cinemahub.app');
 
   // Windows values from --dart-define
   static const String _windowsApiKey = String.fromEnvironment('FIREBASE_WINDOWS_API_KEY', defaultValue: '');

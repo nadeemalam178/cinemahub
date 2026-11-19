@@ -58,7 +58,7 @@ CinemaHub is a premium, invite-only streaming application that combines a polish
 ### Firebase Configuration
 
 1. Create Firebase project at [console.firebase.google.com](https://console.firebase.google.com/)
-2. Register Android app (package: `com.cinemahub.cinemahub`)
+2. Register Android app (package: `com.cinemahub.app`)
 3. Download `google-services.json` → place in `android/app/`
 4. Enable Google Sign-In in Firebase Auth
 5. Configure Firestore with security rules
@@ -66,16 +66,19 @@ CinemaHub is a premium, invite-only streaming application that combines a polish
 
 See [docs/FIREBASE_SETUP.md](docs/FIREBASE_SETUP.md) for detailed instructions.
 
-### GitHub Actions
+### GitHub Actions Secrets
 
-Add these secrets to your GitHub repository:
+Add these secrets to your GitHub repository (Settings → Secrets → Actions):
 
-```
-ANDROID_KEYSTORE_PASSWORD
-ANDROID_KEY_ALIAS
-ANDROID_KEY_PASSWORD
-ANDROID_SIGNING_KEY
-```
+| Secret | Value | Source |
+|--------|-------|--------|
+| `TMDB_API_KEY` | Your TMDB API key | [TMDB Settings](https://www.themoviedb.org/settings/api) |
+| `FIREBASE_API_KEY` | From `google-services.json` | `project_info.project_id` or Firebase Settings |
+| `FIREBASE_APP_ID` | Android app ID | `client[0].client_info.mobilesdk_app_id` |
+| `FIREBASE_MESSAGING_SENDER_ID` | Project number | `project_info.project_number` |
+| `FIREBASE_PROJECT_ID` | Project ID | Firebase Console Settings → General |
+| `FIREBASE_STORAGE_BUCKET` | Storage bucket | `project_info.storage_bucket` |
+| `FIREBASE_AUTH_DOMAIN` | Auth domain | `{project_id}.firebaseapp.com` |
 
 ## 🚀 Development
 
