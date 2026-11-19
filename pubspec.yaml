@@ -35,7 +35,6 @@ dependencies:
   video_player: ^2.9.1
   chewie: ^1.7.5
 
-
   # UI polish
   flutter_svg: ^2.0.9
   shimmer: ^4.0.0
@@ -46,21 +45,21 @@ dependencies:
   package_info_plus: ^10.2.2
   permission_handler: ^13.0.2
 
-  dev_dependencies:
-    flutter_test:
-      sdk: flutter
-    flutter_lints: ^6.0.0
-    mockito: ^5.4.4
-    build_runner: ^2.4.13
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  mockito: ^5.4.4
+  build_runner: ^2.4.13
 
-  flutter:
-    uses-material-design: true
+flutter:
+  uses-material-design: true
 
-    assets:
-      - assets/fonts/
-      - assets/images/
-      - assets/animations/
-      - assets/branding/
+  assets:
+    - assets/fonts/
+    - assets/images/
+    - assets/animations/
+    - assets/branding/
 
-    # Fonts are included in pubspec without the `flutter.fonts` property for portability
-    # between the local sample and the deployed package.
+  # Fonts are included in pubspec without the `flutter.fonts` property for portability
+  # between the local sample and the deployed package.

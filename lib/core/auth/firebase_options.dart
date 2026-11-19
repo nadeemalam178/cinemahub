@@ -189,20 +189,20 @@ class DefaultFirebaseOptions {
   /// Checks if Firebase is properly configured for the current platform.
   static bool get isConfigured {
     final options = currentPlatform;
-    return (options.apiKey != null && options.apiKey!.isNotEmpty) &&
-        (options.appId != null && options.appId!.isNotEmpty) &&
-        (options.projectId != null && options.projectId!.isNotEmpty);
+    return options.apiKey.isNotEmpty &&
+        options.appId.isNotEmpty &&
+        options.projectId.isNotEmpty;
   }
 
   /// Returns a human-readable description of missing configuration.
   static String get configurationStatus {
     final options = currentPlatform;
     final missing = <String>[];
-    if (options.apiKey == null || options.apiKey!.isEmpty) missing.add('API Key');
-    if (options.appId == null || options.appId!.isEmpty) missing.add('App ID');
-    if (options.projectId == null || options.projectId!.isEmpty) missing.add('Project ID');
-    if (options.storageBucket == null || options.storageBucket!.isEmpty) missing.add('Storage Bucket');
-    if (options.authDomain == null || options.authDomain!.isEmpty) missing.add('Auth Domain');
+    if (options.apiKey.isEmpty) missing.add('API Key');
+    if (options.appId.isEmpty) missing.add('App ID');
+    if (options.projectId.isEmpty) missing.add('Project ID');
+    if (options.storageBucket.isEmpty) missing.add('Storage Bucket');
+    if (options.authDomain.isEmpty) missing.add('Auth Domain');
     if (missing.isEmpty) {
       return 'Firebase is configured for ${Platform.operatingSystem}.';
     }
