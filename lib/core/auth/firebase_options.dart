@@ -201,8 +201,8 @@ class DefaultFirebaseOptions {
     if (options.apiKey.isEmpty) missing.add('API Key');
     if (options.appId.isEmpty) missing.add('App ID');
     if (options.projectId.isEmpty) missing.add('Project ID');
-    if (options.storageBucket.isEmpty) missing.add('Storage Bucket');
-    if (options.authDomain.isEmpty) missing.add('Auth Domain');
+    if ((options.storageBucket ?? '').isEmpty) missing.add('Storage Bucket');
+    if ((options.authDomain ?? '').isEmpty) missing.add('Auth Domain');
     if (missing.isEmpty) {
       return 'Firebase is configured for ${Platform.operatingSystem}.';
     }
