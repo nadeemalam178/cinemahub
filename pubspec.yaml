@@ -34,7 +34,7 @@ dependencies:
   # Playback
   video_player: ^2.9.1
   chewie: ^1.7.5
-  video_thumbnail: ^0.5.0
+  
 
   # UI polish
   flutter_svg: ^2.0.9
