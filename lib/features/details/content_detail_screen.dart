@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/catalogue/catalogue_service.dart';
 import '../../core/catalogue/tmdb_service.dart';
 import '../../core/player/playback_engine.dart';
 import '../../core/player/video_player_widget.dart';
@@ -51,8 +50,6 @@ class ContentDetailScreen extends StatefulWidget {
 
 class _ContentDetailScreenState extends State<ContentDetailScreen> {
   Map<String, dynamic>? _meta;
-  bool _loadingMeta = false;
-  String? _metaError;
 
   @override
   void initState() {
@@ -61,27 +58,20 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
   }
 
   Future<void> _loadMeta() async {
-    setState(() {
-      _loadingMeta = true;
-      _metaError = null;
-    });
-
     try {
       if (widget.type == 'movie') {
         final result = await context.read<TmdbService>().getMovieDetails(widget.tmdbId);
-        if (result != null) {
+        if (result != null && mounted) {
           setState(() => _meta = result);
         }
       } else if (widget.type == 'series') {
         final result = await context.read<TmdbService>().getSeriesDetails(widget.tmdbId);
-        if (result != null) {
+        if (result != null && mounted) {
           setState(() => _meta = result);
         }
       }
-    } catch (e) {
-      setState(() => _metaError = e.toString());
-    } finally {
-      setState(() => _loadingMeta = false);
+    } catch (_) {
+      // Silently handle TMDB fetch errors
     }
   }
 
@@ -109,6 +99,26 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
     );
   }
 
+  String? get _backdrop =>
+      _meta?['backdrop_path'] != null
+          ? 'https://image.tmdb.org/t/p/w780${_meta!['backdrop_path']}'
+          : widget.backdropUrl;
+
+  String? get _overview =>
+      _meta?['overview'] as String? ?? widget.overview;
+
+  double? get _rating =>
+      (_meta?['vote_average'] as num?)?.toDouble() ?? widget.rating;
+
+  String? get _releaseDate =>
+      _meta?['release_date'] as String? ??
+      _meta?['first_air_date'] as String? ??
+      widget.releaseDate;
+
+  List<int> get _genreIds =>
+      ((_meta?['genre_ids'] as List?) ?? widget.genreIds ?? const [])
+          .cast<int>();
+
   Widget _buildAppBar() {
     return SliverAppBar(
       expandedHeight: 300,
@@ -119,9 +129,9 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
         background: Stack(
           fit: StackFit.expand,
           children: [
-            if (widget.backdropUrl != null)
+            if (_backdrop != null)
               Image.network(
-                widget.backdropUrl!,
+                _backdrop!,
                 fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) => Container(
                   color: CinemahubColors.surface(Brightness.dark),
@@ -175,17 +185,17 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
       children: [
         Row(
           children: [
-            if (widget.rating != null) ...[
+            if (_rating != null) ...[
               Chip(
                 avatar: const Icon(Icons.star_rounded, size: 16, color: Colors.amber),
-                label: Text('${widget.rating!.toStringAsFixed(1)}'),
+                label: Text(_rating!.toStringAsFixed(1)),
                 visualDensity: VisualDensity.compact,
               ),
               const SizedBox(width: CinemahubSpacing.sm),
             ],
-            if (widget.releaseDate != null) ...[
+            if (_releaseDate != null) ...[
               Chip(
-                label: Text(widget.releaseDate!.substring(0, 4)),
+                label: Text(_releaseDate!.substring(0, 4)),
                 visualDensity: VisualDensity.compact,
               ),
               const SizedBox(width: CinemahubSpacing.sm),
@@ -198,14 +208,40 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
           ],
         ),
         const SizedBox(height: CinemahubSpacing.md),
-        if (widget.overview != null)
+        if (_overview != null)
           Text(
-            widget.overview!,
+            _overview!,
             style: Theme.of(context).textTheme.bodyMedium,
           ),
+        if (_genreIds.isNotEmpty) ...[
+          const SizedBox(height: CinemahubSpacing.md),
+          Wrap(
+            spacing: CinemahubSpacing.sm,
+            runSpacing: CinemahubSpacing.xs,
+            children: _genreIds
+                .map(
+                  (id) => Chip(
+                    label: Text(_genreName(id)),
+                    visualDensity: VisualDensity.compact,
+                    backgroundColor: CinemahubColors.surface(Brightness.dark),
+                  ),
+                )
+                .toList(),
+          ),
+        ],
       ],
     );
   }
+
+  static const Map<int, String> _genreMap = {
+    28: 'Action', 12: 'Adventure', 16: 'Animation', 35: 'Comedy',
+    80: 'Crime', 99: 'Documentary', 18: 'Drama', 10751: 'Family',
+    14: 'Fantasy', 36: 'History', 27: 'Horror', 10402: 'Music',
+    9648: 'Mystery', 10749: 'Romance', 878: 'Science Fiction',
+    10770: 'TV Movie', 53: 'Thriller', 10752: 'War',
+  };
+
+  String _genreName(int id) => _genreMap[id] ?? 'Genre $id';
 
   Widget _buildProviderSection() {
     final engine = context.watch<PlaybackEngine>();
