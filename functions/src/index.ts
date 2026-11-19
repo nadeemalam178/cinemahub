@@ -45,8 +45,9 @@ export const onUserCreate = functions.auth.user().onCreate(async (user) => {
 });
 
 /**
- * Triggered when admin/userStatus/{uid} document is updated.
- * Sets custom claims (admin/owner) based on the status/role in the document.
+ * Triggered when admin/userStatus/users/{uid} document is created, updated, or deleted.
+ * Sets custom claims (admin/owner) based on the status/role in the document,
+ * and synchronizes users/{uid} status and role.
  * Expected document structure:
  * {
  *   role: "admin" | "owner" | "user",
@@ -56,21 +57,39 @@ export const onUserCreate = functions.auth.user().onCreate(async (user) => {
  * }
  */
 export const onUserStatusUpdate = functions.firestore
-  .document("admin/userStatus/{uid}")
-  .onUpdate(async (change, context) => {
+  .document("admin/userStatus/users/{uid}")
+  .onWrite(async (change, context) => {
     const uid = context.params.uid;
-    const before = change.before.data();
     const after = change.after.data();
 
+    // Handle delete event
     if (!after) {
-      // Document deleted - remove custom claims
+      // Remove custom claims
       await admin.auth().setCustomUserClaims(uid, { role: "user" });
+      // Synchronize users/{uid} document
+      await db.collection("users").doc(uid).update({
+        role: "user",
+        status: "suspended",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
       functions.logger.info(`Removed custom claims for ${uid} (doc deleted)`);
       return;
     }
 
     const role = after.role as string | undefined;
     const status = after.status as string | undefined;
+    const updatedBy = after.updatedBy as string | undefined;
+    const updatedAt = after.updatedAt;
+
+    // Synchronize users/{uid} with admin status document
+    await db.collection("users").doc(uid).update({
+      role,
+      status,
+      updatedBy: updatedBy ?? null,
+      updatedAt: updatedAt ?? admin.firestore.FieldValue.serverTimestamp(),
+    }).catch((e) => {
+      functions.logger.error(`Failed to sync users/${uid}: ${e}`);
+    });
 
     // Only set custom claims for approved admins/owners
     if (status === "approved" && (role === "admin" || role === "owner")) {
@@ -86,7 +105,7 @@ export const onUserStatusUpdate = functions.firestore
 
 /**
  * Optional: Callable function for admins to manually set user status/role
- * This creates/updates the admin/userStatus/{uid} document which triggers onUserStatusUpdate
+ * This creates/updates the admin/userStatus/users/{uid} document which triggers onUserStatusUpdate
  */
 export const setUserStatus = functions.https.onCall(async (data, context) => {
   // Verify caller is admin/owner
@@ -111,7 +130,7 @@ export const setUserStatus = functions.https.onCall(async (data, context) => {
   }
 
   const now = admin.firestore.FieldValue.serverTimestamp();
-  await db.collection("admin").doc("userStatus").doc(targetUid).set({
+  await db.collection("admin").doc("userStatus").collection("users").doc(targetUid).set({
     role,
     status,
     updatedBy: context.auth.uid,
