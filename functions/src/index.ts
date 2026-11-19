@@ -56,7 +56,7 @@ export const onUserCreate = functions.auth.user().onCreate(async (user) => {
  * }
  */
 export const onUserStatusUpdate = functions.firestore
-  .document("admin/userStatus/users/{uid}")
+  .document("admin/userStatus/{uid}")
   .onUpdate(async (change, context) => {
     const uid = context.params.uid;
     const before = change.before.data();
@@ -111,7 +111,7 @@ export const setUserStatus = functions.https.onCall(async (data, context) => {
   }
 
   const now = admin.firestore.FieldValue.serverTimestamp();
-  await db.collection("admin").doc("userStatus").collection("users").doc(targetUid).set({
+  await db.collection("admin").doc("userStatus").doc(targetUid).set({
     role,
     status,
     updatedBy: context.auth.uid,
