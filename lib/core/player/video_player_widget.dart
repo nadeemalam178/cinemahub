@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/cinemahub_colors.dart';
 import '../../core/theme/cinemahub_tokens.dart';
 import '../providers/stremio_adapter.dart';
+import 'in_app_adblocked_player.dart';
 
 /// Video player backed by Chewie; supports direct URLs and external players.
 ///
@@ -156,71 +157,9 @@ class _CinemaPlayerState extends State<CinemaPlayer>
 
     final isWebEmbed = widget.stream.behaviorHints?['isWebEmbed'] == true;
     if (isWebEmbed) {
-      return Container(
-        color: CinemahubColors.darkBackground,
-        padding: const EdgeInsets.all(24),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: CinemahubColors.primary.withValues(alpha: 0.15),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.play_circle_fill_rounded,
-                  size: 64,
-                  color: CinemahubColors.primary,
-                ),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                widget.title ?? 'Watch Content',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: CinemahubColors.gold.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: CinemahubColors.gold.withValues(alpha: 0.4)),
-                ),
-                child: Text(
-                  widget.stream.name,
-                  style: const TextStyle(
-                    color: CinemahubColors.gold,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: CinemahubColors.primary,
-                  padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                onPressed: _openExternal,
-                icon: const Icon(Icons.open_in_browser_rounded, size: 20),
-                label: const Text(
-                  'Launch Stream Player',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                ),
-              ),
-            ],
-          ),
-        ),
+      return InAppAdBlockedPlayer(
+        url: widget.stream.url,
+        title: widget.title ?? widget.stream.name,
       );
     }
 

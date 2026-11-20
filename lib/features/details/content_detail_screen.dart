@@ -253,26 +253,74 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              'Play',
-              style: Theme.of(context).textTheme.titleLarge,
+            Row(
+              children: [
+                Text(
+                  'Watch Options',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.shield_rounded, color: Colors.greenAccent, size: 12),
+                      SizedBox(width: 4),
+                      Text(
+                        'uBlock Active',
+                        style: TextStyle(color: Colors.greenAccent, fontSize: 10, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            Text(
-              '${registry.enabled.length} provider${registry.enabled.length == 1 ? '' : 's'}',
-              style: Theme.of(context).textTheme.labelMedium,
-            ),
+            if (engine.currentStreams.isNotEmpty)
+              Text(
+                '${engine.currentStreams.length} Sources',
+                style: const TextStyle(color: CinemahubColors.gold, fontWeight: FontWeight.bold, fontSize: 12),
+              ),
           ],
         ),
         const SizedBox(height: CinemahubSpacing.md),
         if (engine.loading)
-          const Center(child: CircularProgressIndicator())
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(color: CinemahubColors.primary),
+                  SizedBox(height: 12),
+                  Text(
+                    'Scraping FMHY & Stremio Addons...',
+                    style: TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          )
         else if (engine.currentStreams.isNotEmpty)
-          ...engine.currentStreams.take(3).map((stream) => _StreamCard(stream: stream))
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: engine.currentStreams.length,
+            itemBuilder: (context, index) {
+              final stream = engine.currentStreams[index];
+              return _StreamCard(stream: stream, contentTitle: widget.title);
+            },
+          )
         else if (engine.error != null)
           ErrorState(message: engine.error!)
         else
           CinemaButton(
-            label: 'Find Streams',
+            label: 'Find Streams & Servers',
             icon: Icons.play_arrow_rounded,
             onPressed: () => _fetchStreams(engine, registry),
             expanded: true,
@@ -284,51 +332,107 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
   Future<void> _fetchStreams(PlaybackEngine engine, ProviderRegistry registry) async {
     final imdbId = _meta?['imdb_id'] as String?;
     final streamId = (imdbId != null && imdbId.isNotEmpty) ? imdbId : widget.id;
-    await engine.loadStreams(
+    await engine.fetchStreams(
       registry: registry,
-      contentType: widget.type == 'movie' ? ContentType.movie : ContentType.series,
+      type: widget.type == 'movie' ? ContentType.movie : ContentType.series,
       id: streamId,
     );
   }
 }
 
 class _StreamCard extends StatelessWidget {
-  const _StreamCard({required this.stream});
+  const _StreamCard({required this.stream, required this.contentTitle});
 
   final StreamResult stream;
+  final String contentTitle;
 
   @override
   Widget build(BuildContext context) {
+    final isTorrent = stream.behaviorHints?['isTorrent'] == true;
+    final isWebEmbed = stream.behaviorHints?['isWebEmbed'] == true;
+    final seeders = stream.behaviorHints?['seeders'] as int? ?? 0;
+    final speed = stream.behaviorHints?['speed'] as String? ?? '';
+
     return Card(
-      margin: const EdgeInsets.only(bottom: CinemahubSpacing.sm),
+      elevation: 0,
+      color: CinemahubColors.darkSurface,
+      margin: const EdgeInsets.only(bottom: 8),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+      ),
       child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: CinemahubColors.primary.withValues(alpha: 0.1),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: isTorrent
+                ? Colors.purple.withValues(alpha: 0.2)
+                : CinemahubColors.primary.withValues(alpha: 0.2),
+            borderRadius: BorderRadius.circular(8),
+          ),
           child: Icon(
-            Icons.play_circle_outline_rounded,
-            color: CinemahubColors.primary,
+            isTorrent ? Icons.bolt_rounded : Icons.play_arrow_rounded,
+            color: isTorrent ? Colors.purpleAccent : CinemahubColors.primary,
           ),
         ),
-        title: Text(stream.name),
-        subtitle: Text(stream.type.split('/').last.toUpperCase()),
-        trailing: const Icon(Icons.chevron_right_rounded),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                stream.name,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white),
+              ),
+            ),
+            if (isTorrent && seeders > 0)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.purple.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  '⚡ $seeders',
+                  style: const TextStyle(color: Colors.purpleAccent, fontSize: 11, fontWeight: FontWeight.bold),
+                ),
+              ),
+            if (isWebEmbed && speed.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: CinemahubColors.gold.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  speed,
+                  style: const TextStyle(color: CinemahubColors.gold, fontSize: 10, fontWeight: FontWeight.bold),
+                ),
+              ),
+          ],
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text(
+            isTorrent
+                ? 'Stremio P2P Stream • Torrentio/MediaFusion'
+                : '🛡️ In-App Player • Zero Ads / uBlock Shield',
+            style: TextStyle(
+              color: isTorrent ? Colors.white60 : Colors.greenAccent.withValues(alpha: 0.8),
+              fontSize: 11,
+            ),
+          ),
+        ),
+        trailing: const Icon(Icons.play_circle_fill_rounded, color: CinemahubColors.primary),
         onTap: () {
           Navigator.push(
             context,
             MaterialPageRoute(
               builder: (_) => Scaffold(
                 backgroundColor: Colors.black,
-                appBar: AppBar(
-                  backgroundColor: Colors.transparent,
-                  elevation: 0,
-                  leading: IconButton(
-                    icon: const Icon(Icons.arrow_back, color: Colors.white),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ),
                 body: CinemaPlayer(
                   stream: stream,
-                  title: null,
+                  title: contentTitle,
                   allowExternalPlayer: true,
                 ),
               ),
