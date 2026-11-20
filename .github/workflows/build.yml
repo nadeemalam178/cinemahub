@@ -31,6 +31,13 @@ jobs:
       - name: Run tests
         run: flutter test --coverage
 
+      - name: Setup Keystore
+        if: env.KEYSTORE_BASE64 != ''
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 --decode > android/app/debug.keystore
+
       - name: Build APK (Release, arm64 only)
         run: |
           flutter build apk --release \
