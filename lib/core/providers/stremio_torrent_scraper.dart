@@ -5,14 +5,16 @@ import 'stremio_adapter.dart';
 /// Scrapes Stremio community torrent addons (Torrentio, MediaFusion, Comet, KnightCrawler)
 /// and extracts direct stream information and torrent hashes with seeder/quality ranking.
 class StremioTorrentScraper {
-  StremioTorrentScraper({Dio? dio}) : _dio = dio ?? Dio(BaseOptions(
-    connectTimeout: const Duration(seconds: 8),
-    receiveTimeout: const Duration(seconds: 10),
-  ));
+  StremioTorrentScraper({Dio? dio})
+      : _dio = dio ??
+            Dio(BaseOptions(
+              connectTimeout: const Duration(seconds: 10),
+              receiveTimeout: const Duration(seconds: 12),
+            ));
 
   final Dio _dio;
 
-  /// Verified public Stremio & Nuvioplugin torrent manifests
+  /// Verified public Stremio torrent addons
   static const List<Map<String, String>> communityAddons = [
     {
       'id': 'torrentio',
@@ -43,9 +45,19 @@ class StremioTorrentScraper {
     int? season,
     int? episode,
   }) async {
+    // Ensure clean IMDb ID (must start with 'tt')
+    final cleanImdb = imdbId.contains('tt')
+        ? 'tt${imdbId.split('tt').last.split(RegExp(r'[^0-9]')).first}'
+        : '';
+
+    if (cleanImdb.isEmpty) {
+      debugPrint('StremioTorrentScraper: No valid IMDb ID found in "$imdbId"');
+      return [];
+    }
+
     final streamId = season != null && episode != null
-        ? '$imdbId:$season:$episode'
-        : imdbId;
+        ? '$cleanImdb:$season:$episode'
+        : cleanImdb;
 
     final results = <StreamResult>[];
 
@@ -60,36 +72,47 @@ class StremioTorrentScraper {
             if (streams != null) {
               for (final raw in streams) {
                 if (raw is Map) {
-                  final title = raw['title'] as String? ?? raw['name'] as String? ?? '';
+                  final title =
+                      raw['title'] as String? ?? raw['name'] as String? ?? '';
                   final infoHash = raw['infoHash'] as String?;
-                  final fileIdx = raw['fileIdx'];
                   final directUrl = raw['url'] as String?;
 
-                  // Determine stream target (direct HTTP or P2P WebTorrent bridge)
+                  // Determine stream target (direct HTTP or streaming gateway)
                   String streamUrl = '';
+                  String magnetUri = '';
+
                   if (directUrl != null && directUrl.isNotEmpty) {
                     streamUrl = directUrl;
                   } else if (infoHash != null && infoHash.isNotEmpty) {
-                    // Route via standard P2P WebTorrent / Torrent-to-HTTP bridge endpoint
-                    final idxParam = fileIdx != null ? '&idx=$fileIdx' : '';
-                    streamUrl = 'https://torrent-stream.online/stream?ih=$infoHash$idxParam';
+                    magnetUri =
+                        'magnet:?xt=urn:btih:$infoHash&dn=${Uri.encodeComponent(title)}';
+                    // Webtor / Seedr / WebTorrent in-app streaming gateway
+                    streamUrl =
+                        'https://webtor.io/show?magnet=${Uri.encodeComponent(magnetUri)}';
                   }
 
                   if (streamUrl.isNotEmpty) {
                     final quality = _extractQuality(title);
                     final seeders = _extractSeeders(title);
 
+                    final isWebEmbed = streamUrl.contains('webtor.io');
+
                     results.add(StreamResult(
                       url: streamUrl,
                       name: '${addon['name']} • $quality',
-                      type: 'application/x-bittorrent',
+                      type: isWebEmbed ? 'text/html' : 'video/mp4',
                       behaviorHints: {
                         'title': '$title\n⚡ Seeders: $seeders',
                         'isTorrent': true,
+                        'isWebEmbed': isWebEmbed,
                         'infoHash': infoHash,
+                        'magnetUri': magnetUri,
                         'seeders': seeders,
                         'quality': quality,
                         'addon': addon['id'],
+                        'category': 'stremio',
+                        'categoryLabel': 'Stremio Addons',
+                        'provider': addon['name'],
                       },
                     ));
                   }
@@ -98,47 +121,38 @@ class StremioTorrentScraper {
             }
           }
         } catch (e) {
-          debugPrint('Error scraping Stremio addon ${addon['id']}: $e');
+          debugPrint('Scraping ${addon['name']} failed: $e');
         }
       }),
     );
 
-    // Rank streams: 4K first, then 1080p, then highest seeders
+    // Sort by seeders descending
     results.sort((a, b) {
-      final seedersA = a.behaviorHints?['seeders'] as int? ?? 0;
-      final seedersB = b.behaviorHints?['seeders'] as int? ?? 0;
-      final qualityScoreA = _qualityScore(a.name);
-      final qualityScoreB = _qualityScore(b.name);
-
-      if (qualityScoreA != qualityScoreB) {
-        return qualityScoreB.compareTo(qualityScoreA);
-      }
-      return seedersB.compareTo(seedersA);
+      final sA = a.behaviorHints?['seeders'] as int? ?? 0;
+      final sB = b.behaviorHints?['seeders'] as int? ?? 0;
+      return sB.compareTo(sA);
     });
 
     return results;
   }
 
-  static String _extractQuality(String text) {
-    final lower = text.toLowerCase();
-    if (lower.contains('4k') || lower.contains('2160p')) return '4K UHD';
-    if (lower.contains('1080p')) return '1080p Full HD';
-    if (lower.contains('720p')) return '720p HD';
+  String _extractQuality(String text) {
+    if (text.contains('4K') || text.contains('2160p')) return '4K UHD';
+    if (text.contains('1080p')) return '1080p FHD';
+    if (text.contains('720p')) return '720p HD';
+    if (text.contains('HDR')) return 'HDR';
     return 'HD';
   }
 
-  static int _qualityScore(String name) {
-    if (name.contains('4K')) return 4;
-    if (name.contains('1080p')) return 3;
-    if (name.contains('720p')) return 2;
-    return 1;
-  }
-
-  static int _extractSeeders(String text) {
-    final match = RegExp(r'(?:👤|⚡|seeders?:?\s*)(\d+)', caseSensitive: false).firstMatch(text);
+  int _extractSeeders(String text) {
+    final match = RegExp(r'👤\s*(\d+)|👥\s*(\d+)|⚡\s*(\d+)|[sS]eeders?:\s*(\d+)')
+        .firstMatch(text);
     if (match != null) {
-      return int.tryParse(match.group(1) ?? '0') ?? 0;
+      for (int i = 1; i <= match.groupCount; i++) {
+        final val = match.group(i);
+        if (val != null) return int.tryParse(val) ?? 0;
+      }
     }
-    return 0;
+    return 10;
   }
 }

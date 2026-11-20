@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
 import '../../core/catalogue/catalogue_service.dart';
+import '../../core/catalogue/stremio_catalog_service.dart';
 import '../../core/theme/cinemahub_colors.dart';
 
 /// Netflix-style cinematic home screen with dynamic billboard and curated shelves.
@@ -26,6 +27,10 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Map<String, dynamic>> _topRated = [];
   List<Map<String, dynamic>> _actionMovies = [];
   List<Map<String, dynamic>> _sciFiMovies = [];
+
+  // Stremio community shelves (loaded async separately so TMDB shows first)
+  List<StremioShelf> _stremioShelves = [];
+  bool _stremioLoading = false;
 
   // Filter tab selection: 0 = All, 1 = Movies, 2 = TV Shows
   int _selectedFilter = 0;
@@ -60,12 +65,32 @@ class _HomeScreenState extends State<HomeScreen> {
         _error = null;
         _loading = false;
       });
+
+      // Load Stremio shelves in background — doesn't block the main UI
+      _loadStremioShelves();
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _error = e.toString();
         _loading = false;
       });
+    }
+  }
+
+  Future<void> _loadStremioShelves() async {
+    if (!mounted) return;
+    setState(() => _stremioLoading = true);
+    try {
+      final shelves = await _catalogue.getStremioShelves();
+      if (!mounted) return;
+      setState(() {
+        _stremioShelves = shelves;
+        _stremioLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _stremioLoading = false);
+      debugPrint('Stremio shelves failed: $e');
     }
   }
 
@@ -238,11 +263,97 @@ class _HomeScreenState extends State<HomeScreen> {
                   _SectionHeader(title: 'Sci-Fi & Cyberpunk'),
                   _buildContentRow(_sciFiMovies),
                   const SizedBox(height: 32),
+
+                  // ══════════════════════════════════════════════════════
+                  // STREMIO COMMUNITY ADDON SHELVES
+                  // Loaded async in background after TMDB shelves render
+                  // ══════════════════════════════════════════════════════
+                  if (_stremioLoading)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      child: Center(
+                        child: Column(
+                          children: [
+                            CircularProgressIndicator(
+                              color: CinemahubColors.primary,
+                              strokeWidth: 2,
+                            ),
+                            SizedBox(height: 10),
+                            Text(
+                              'Loading Stremio community content…',
+                              style: TextStyle(color: Colors.grey, fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else if (_stremioShelves.isNotEmpty) ...[
+                    // Stremio section divider
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                      child: Row(
+                        children: [
+                          Expanded(child: Divider(color: Colors.white12)),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            child: Row(
+                              children: [
+                                Image.network(
+                                  'https://www.stremio.com/website/stremio-icon.png',
+                                  width: 20,
+                                  height: 20,
+                                  errorBuilder: (context, error, stackTrace) =>
+                                      const Icon(Icons.extension_rounded,
+                                          color: CinemahubColors.primary,
+                                          size: 20),
+                                ),
+                                const SizedBox(width: 8),
+                                const Text(
+                                  'STREMIO COMMUNITY',
+                                  style: TextStyle(
+                                    color: Colors.white38,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 1.5,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Expanded(child: Divider(color: Colors.white12)),
+                        ],
+                      ),
+                    ),
+                    // Render each Stremio shelf
+                    for (final shelf in _stremioShelves) ...[
+                      _StremioShelfHeader(
+                        label: shelf.label,
+                        source: shelf.source,
+                      ),
+                      _buildStremioRow(shelf.items),
+                      const SizedBox(height: 24),
+                    ],
+                    const SizedBox(height: 16),
+                  ],
                 ],
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildStremioRow(List<Map<String, dynamic>> items) {
+    if (items.isEmpty) return const SizedBox.shrink();
+    return SizedBox(
+      height: 195,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        scrollDirection: Axis.horizontal,
+        itemCount: items.length,
+        separatorBuilder: (context, index) => const SizedBox(width: 12),
+        itemBuilder: (context, i) => _StremioCard(item: items[i]),
       ),
     );
   }
@@ -706,6 +817,177 @@ class MovieCard extends StatelessWidget {
               Row(
                 children: [
                   const Icon(Icons.star_rounded, size: 14, color: CinemahubColors.gold),
+                  const SizedBox(width: 3),
+                  Text(
+                    rating.toStringAsFixed(1),
+                    style: const TextStyle(
+                      color: CinemahubColors.gold,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Stremio shelf header widget — shows addon name badge
+// ---------------------------------------------------------------------------
+class _StremioShelfHeader extends StatelessWidget {
+  const _StremioShelfHeader({required this.label, required this.source});
+  final String label;
+  final String source;
+
+  Color get _sourceColor {
+    switch (source) {
+      case 'Cinemeta':
+        return const Color(0xFF7B2FBE);
+      case 'Kitsu':
+        return const Color(0xFFE76F51);
+      case 'Community':
+        return const Color(0xFF2A9D8F);
+      default:
+        return CinemahubColors.primary;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 17,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.2,
+              ),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: _sourceColor.withValues(alpha: 0.2),
+              border: Border.all(color: _sourceColor.withValues(alpha: 0.5)),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              source,
+              style: TextStyle(
+                color: _sourceColor,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Stremio content card — same look as MovieCard with source badge
+// ---------------------------------------------------------------------------
+class _StremioCard extends StatelessWidget {
+  const _StremioCard({required this.item});
+  final Map<String, dynamic> item;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final title = item['title'] as String? ?? 'Unknown';
+    final posterUrl = item['posterUrl'] as String? ?? '';
+    final rating = (item['rating'] as num?)?.toDouble() ?? 0.0;
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.pushNamed(
+          context,
+          '/details',
+          arguments: item,
+        );
+      },
+      child: SizedBox(
+        width: 125,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: posterUrl.isNotEmpty
+                        ? CachedNetworkImage(
+                            imageUrl: posterUrl,
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                            placeholder: (context, url) => Container(
+                              color: isDark ? Colors.white10 : Colors.black12,
+                            ),
+                            errorWidget: (context, url, error) => Container(
+                              color: isDark ? Colors.white10 : Colors.black12,
+                              child: const Icon(Icons.movie_rounded,
+                                  color: Colors.grey),
+                            ),
+                          )
+                        : Container(
+                            color: isDark ? Colors.white10 : Colors.black12,
+                            child: const Icon(Icons.movie_rounded,
+                                color: Colors.grey),
+                          ),
+                  ),
+                  // "Stremio" badge on top-right
+                  Positioned(
+                    top: 6,
+                    right: 6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 5, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF7B2FBE).withValues(alpha: 0.85),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Text(
+                        'S',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: isDark ? Colors.white : Colors.black87,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            if (rating > 0)
+              Row(
+                children: [
+                  const Icon(Icons.star_rounded,
+                      size: 14, color: CinemahubColors.gold),
                   const SizedBox(width: 3),
                   Text(
                     rating.toStringAsFixed(1),

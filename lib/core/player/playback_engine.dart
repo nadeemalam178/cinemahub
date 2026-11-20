@@ -1,27 +1,56 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 
+import '../catalogue/id_resolver.dart';
+import '../providers/cloudstream_provider_engine.dart';
 import '../providers/fmhy_provider_engine.dart';
+import '../providers/nuvio_provider_engine.dart';
 import '../providers/provider_model.dart';
 import '../providers/provider_registry.dart';
 import '../providers/stremio_adapter.dart';
 import '../providers/stremio_torrent_scraper.dart';
 
-/// Multi-provider playback engine: FMHY 12+ Servers + Stremio & Nuvioplugin P2P torrents.
+/// Multi-provider playback engine: FMHY 28+ Servers + Stremio Addons + Nuvio Plugins + CloudStream.
 class PlaybackEngine extends ChangeNotifier {
   PlaybackEngine({
     required this.adapter,
     FmhyProviderEngine? fmhyEngine,
     StremioTorrentScraper? torrentScraper,
+    NuvioProviderEngine? nuvioEngine,
+    CloudStreamProviderEngine? cloudStreamEngine,
+    IdResolver? idResolver,
   })  : _fmhyEngine = fmhyEngine ?? const FmhyProviderEngine(),
-        _torrentScraper = torrentScraper ?? StremioTorrentScraper();
+        _torrentScraper = torrentScraper ?? StremioTorrentScraper(),
+        _nuvioEngine = nuvioEngine ?? NuvioProviderEngine(),
+        _cloudStreamEngine = cloudStreamEngine ?? CloudStreamProviderEngine(),
+        _idResolver = idResolver ?? IdResolver();
 
   final StremioAdapter adapter;
   final FmhyProviderEngine _fmhyEngine;
   final StremioTorrentScraper _torrentScraper;
+  final NuvioProviderEngine _nuvioEngine;
+  final CloudStreamProviderEngine _cloudStreamEngine;
+  final IdResolver _idResolver;
 
   List<StreamResult> _currentStreams = [];
   List<StreamResult> get currentStreams => _currentStreams;
+
+  // Categorized stream accessors
+  List<StreamResult> get fmhyStreams => _currentStreams
+      .where((s) => s.behaviorHints?['category'] == 'fmhy')
+      .toList();
+
+  List<StreamResult> get stremioStreams => _currentStreams
+      .where((s) => s.behaviorHints?['category'] == 'stremio')
+      .toList();
+
+  List<StreamResult> get nuvioStreams => _currentStreams
+      .where((s) => s.behaviorHints?['category'] == 'nuvio')
+      .toList();
+
+  List<StreamResult> get cloudStreamStreams => _currentStreams
+      .where((s) => s.behaviorHints?['category'] == 'cloudstream')
+      .toList();
 
   bool _loading = false;
   bool get loading => _loading;
@@ -29,12 +58,15 @@ class PlaybackEngine extends ChangeNotifier {
   String? _error;
   String? get error => _error;
 
-  /// Fetch playable streams for the given content across FMHY, Stremio torrents & registered providers.
+  /// Fetch playable streams for the given content across all 4 categories.
   Future<void> fetchStreams({
     required ContentType type,
     required String id,
     int? season,
     int? episode,
+    String? metaImdbId,
+    int? metaTmdbId,
+    String? title,
     ProviderRegistry? registry,
   }) async {
     _loading = true;
@@ -44,44 +76,89 @@ class PlaybackEngine extends ChangeNotifier {
 
     final allStreams = <StreamResult>[];
     final errors = <String>[];
-
-    // Normalize IDs
-    String tmdbOrImdb = id;
-    if (tmdbOrImdb.startsWith('tmdb:')) {
-      tmdbOrImdb = tmdbOrImdb.replaceFirst('tmdb:', '');
-    } else if (tmdbOrImdb.startsWith('imdb:')) {
-      tmdbOrImdb = tmdbOrImdb.replaceFirst('imdb:', '');
-    }
-
     final isMovie = type == ContentType.movie;
 
-    // 1. Fetch all FMHY Embed Streams (Ad-Blocked In-App Player)
-    try {
-      final fmhyStreams = _fmhyEngine.resolveAllStreams(
-        tmdbId: tmdbOrImdb,
-        isMovie: isMovie,
-        season: season,
-        episode: episode,
-      );
-      allStreams.addAll(fmhyStreams);
-    } catch (e) {
-      debugPrint('FMHY Engine resolution error: $e');
-    }
+    // 1. Resolve IDs bi-directionally (clean TMDB ID + clean IMDb ID)
+    final resolved = await _idResolver.resolve(
+      rawId: id,
+      isMovie: isMovie,
+      metaImdbId: metaImdbId,
+      metaTmdbId: metaTmdbId,
+      title: title,
+    );
 
-    // 2. Fetch Stremio & Nuvioplugin Torrents (Torrentio, MediaFusion, Comet, KnightCrawler)
-    try {
-      final torrentStreams = await _torrentScraper.fetchAllTorrentStreams(
-        type: isMovie ? 'movie' : 'series',
-        imdbId: tmdbOrImdb.startsWith('tt') ? tmdbOrImdb : 'tt$tmdbOrImdb',
-        season: season,
-        episode: episode,
-      );
-      allStreams.addAll(torrentStreams);
-    } catch (e) {
-      debugPrint('Torrent Scraper error: $e');
-    }
+    final cleanTmdb = resolved.tmdbId;
+    final cleanImdb = resolved.imdbId;
 
-    // 3. Fallback to registered Stremio providers if provided
+    // 2. Fetch all 4 categories in parallel
+    await Future.wait([
+      // Category 1: FMHY Video Servers (28+ verified embeds)
+      Future(() {
+        try {
+          final fmhy = _fmhyEngine.resolveAllStreams(
+            tmdbId: cleanTmdb,
+            imdbId: cleanImdb,
+            isMovie: isMovie,
+            season: season,
+            episode: episode,
+          );
+          allStreams.addAll(fmhy);
+        } catch (e) {
+          debugPrint('FMHY resolution error: $e');
+        }
+      }),
+
+      // Category 2: Stremio Addons (Torrentio, MediaFusion, Comet, KnightCrawler)
+      Future(() async {
+        if (cleanImdb.isNotEmpty) {
+          try {
+            final torrents = await _torrentScraper.fetchAllTorrentStreams(
+              type: isMovie ? 'movie' : 'series',
+              imdbId: cleanImdb,
+              season: season,
+              episode: episode,
+            );
+            allStreams.addAll(torrents);
+          } catch (e) {
+            debugPrint('Stremio Addon scraper error: $e');
+          }
+        }
+      }),
+
+      // Category 3: Nuvio Plugins (nuvioplugin.com)
+      Future(() async {
+        try {
+          final nuvio = await _nuvioEngine.fetchStreams(
+            isMovie: isMovie,
+            imdbId: cleanImdb,
+            tmdbId: cleanTmdb,
+            season: season,
+            episode: episode,
+          );
+          allStreams.addAll(nuvio);
+        } catch (e) {
+          debugPrint('Nuvio Plugin scraper error: $e');
+        }
+      }),
+
+      // Category 4: CloudStream Sources
+      Future(() async {
+        try {
+          final cs = await _cloudStreamEngine.fetchStreams(
+            isMovie: isMovie,
+            tmdbId: cleanTmdb,
+            imdbId: cleanImdb,
+            season: season,
+            episode: episode,
+          );
+          allStreams.addAll(cs);
+        } catch (e) {
+          debugPrint('CloudStream scraper error: $e');
+        }
+      }),
+    ]);
+
+    // 3. Fallback to registered custom providers if provided
     if (registry != null) {
       final enabledProviders = registry.enabled;
       for (final provider in enabledProviders) {

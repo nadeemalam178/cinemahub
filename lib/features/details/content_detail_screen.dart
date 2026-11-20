@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/catalogue/tmdb_service.dart';
+import '../../core/player/in_app_adblocked_player.dart';
 import '../../core/player/playback_engine.dart';
 import '../../core/player/video_player_widget.dart';
 import '../../core/providers/provider_registry.dart';
@@ -13,7 +14,7 @@ import '../../core/theme/cinemahub_colors.dart';
 import '../../core/theme/cinemahub_tokens.dart';
 import '../../core/theme/widgets.dart';
 
-/// Content detail screen showing metadata from TMDB and available streams.
+/// Content detail screen showing metadata from TMDB/Stremio and categorized streams.
 class ContentDetailScreen extends StatefulWidget {
   const ContentDetailScreen({
     super.key,
@@ -28,7 +29,7 @@ class ContentDetailScreen extends StatefulWidget {
     this.genreIds,
   });
 
-  final String id; // tmdb:id or provider-specific id
+  final String id; // tmdb:id, stremio:id or raw id
   final String type; // "movie" | "series"
   final String title;
   final String? posterUrl;
@@ -41,7 +42,8 @@ class ContentDetailScreen extends StatefulWidget {
   /// Extract numeric id for TMDB providers.
   int get tmdbId {
     final parts = id.split(':');
-    return int.tryParse(parts.last) ?? 0;
+    final last = parts.last;
+    return int.tryParse(last) ?? 0;
   }
 
   @override
@@ -50,22 +52,33 @@ class ContentDetailScreen extends StatefulWidget {
 
 class _ContentDetailScreenState extends State<ContentDetailScreen> {
   Map<String, dynamic>? _meta;
+  int _selectedCategoryTab = 0; // 0: FMHY, 1: Stremio, 2: Nuvio, 3: CloudStream
+  bool _didAutoFetch = false;
 
   @override
   void initState() {
     super.initState();
     _loadMeta();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_didAutoFetch && mounted) {
+        _didAutoFetch = true;
+        _autoFetchStreams();
+      }
+    });
   }
 
   Future<void> _loadMeta() async {
+    final tId = widget.tmdbId;
+    if (tId <= 0) return;
+
     try {
       if (widget.type == 'movie') {
-        final result = await context.read<TmdbService>().getMovieDetails(widget.tmdbId);
+        final result = await context.read<TmdbService>().getMovieDetails(tId);
         if (result != null && mounted) {
           setState(() => _meta = result);
         }
       } else if (widget.type == 'series') {
-        final result = await context.read<TmdbService>().getSeriesDetails(widget.tmdbId);
+        final result = await context.read<TmdbService>().getSeriesDetails(tId);
         if (result != null && mounted) {
           setState(() => _meta = result);
         }
@@ -73,6 +86,12 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
     } catch (_) {
       // Silently handle TMDB fetch errors
     }
+  }
+
+  void _autoFetchStreams() {
+    final engine = context.read<PlaybackEngine>();
+    final registry = context.read<ProviderRegistry>();
+    _fetchStreams(engine, registry);
   }
 
   @override
@@ -195,7 +214,9 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
             ],
             if (_releaseDate != null) ...[
               Chip(
-                label: Text(_releaseDate!.substring(0, 4)),
+                label: Text(
+                  _releaseDate!.length >= 4 ? _releaseDate!.substring(0, 4) : _releaseDate!,
+                ),
                 visualDensity: VisualDensity.compact,
               ),
               const SizedBox(width: CinemahubSpacing.sm),
@@ -247,9 +268,37 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
     final engine = context.watch<PlaybackEngine>();
     final registry = context.watch<ProviderRegistry>();
 
+    final fmhyCount = engine.fmhyStreams.length;
+    final stremioCount = engine.stremioStreams.length;
+    final nuvioCount = engine.nuvioStreams.length;
+    final csCount = engine.cloudStreamStreams.length;
+
+    // Pick active list according to selected category tab
+    List<StreamResult> activeStreams = [];
+    String emptyMessage = 'No streams found';
+    switch (_selectedCategoryTab) {
+      case 0:
+        activeStreams = engine.fmhyStreams;
+        emptyMessage = 'No FMHY video servers available';
+        break;
+      case 1:
+        activeStreams = engine.stremioStreams;
+        emptyMessage = 'No Stremio addon torrents available';
+        break;
+      case 2:
+        activeStreams = engine.nuvioStreams;
+        emptyMessage = 'No Nuvio plugin streams available';
+        break;
+      case 3:
+        activeStreams = engine.cloudStreamStreams;
+        emptyMessage = 'No CloudStream sources available';
+        break;
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Section Title & uBlock Badge
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -282,48 +331,105 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
               ],
             ),
             if (engine.currentStreams.isNotEmpty)
-              Text(
-                '${engine.currentStreams.length} Sources',
-                style: const TextStyle(color: CinemahubColors.gold, fontWeight: FontWeight.bold, fontSize: 12),
+              IconButton(
+                onPressed: () => _fetchStreams(engine, registry),
+                icon: const Icon(Icons.refresh_rounded, size: 20),
+                tooltip: 'Refresh all sources',
               ),
           ],
         ),
+        const SizedBox(height: CinemahubSpacing.sm),
+
+        // 4 Category Tabs
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              _CategoryTabChip(
+                label: 'FMHY Video',
+                count: fmhyCount,
+                selected: _selectedCategoryTab == 0,
+                color: CinemahubColors.primary,
+                onTap: () => setState(() => _selectedCategoryTab = 0),
+              ),
+              const SizedBox(width: 8),
+              _CategoryTabChip(
+                label: 'Stremio Addons',
+                count: stremioCount,
+                selected: _selectedCategoryTab == 1,
+                color: Colors.purpleAccent,
+                onTap: () => setState(() => _selectedCategoryTab = 1),
+              ),
+              const SizedBox(width: 8),
+              _CategoryTabChip(
+                label: 'Nuvio Plugins',
+                count: nuvioCount,
+                selected: _selectedCategoryTab == 2,
+                color: const Color(0xFF2A9D8F),
+                onTap: () => setState(() => _selectedCategoryTab = 2),
+              ),
+              const SizedBox(width: 8),
+              _CategoryTabChip(
+                label: 'CloudStream',
+                count: csCount,
+                selected: _selectedCategoryTab == 3,
+                color: Colors.blueAccent,
+                onTap: () => setState(() => _selectedCategoryTab = 3),
+              ),
+            ],
+          ),
+        ),
         const SizedBox(height: CinemahubSpacing.md),
+
+        // Streams List
         if (engine.loading)
           const Center(
             child: Padding(
-              padding: EdgeInsets.symmetric(vertical: 24),
+              padding: EdgeInsets.symmetric(vertical: 36),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   CircularProgressIndicator(color: CinemahubColors.primary),
                   SizedBox(height: 12),
                   Text(
-                    'Scraping FMHY & Stremio Addons...',
-                    style: TextStyle(color: Colors.white70, fontSize: 12),
+                    'Scraping FMHY, Stremio, Nuvio & CloudStream...',
+                    style: TextStyle(color: Colors.white70, fontSize: 13),
                   ),
                 ],
               ),
             ),
           )
-        else if (engine.currentStreams.isNotEmpty)
+        else if (activeStreams.isNotEmpty)
           ListView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            itemCount: engine.currentStreams.length,
+            itemCount: activeStreams.length,
             itemBuilder: (context, index) {
-              final stream = engine.currentStreams[index];
+              final stream = activeStreams[index];
               return _StreamCard(stream: stream, contentTitle: widget.title);
             },
           )
-        else if (engine.error != null)
+        else if (engine.error != null && engine.currentStreams.isEmpty)
           ErrorState(message: engine.error!)
         else
-          CinemaButton(
-            label: 'Find Streams & Servers',
-            icon: Icons.play_arrow_rounded,
-            onPressed: () => _fetchStreams(engine, registry),
-            expanded: true,
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: Column(
+                children: [
+                  Text(
+                    emptyMessage,
+                    style: const TextStyle(color: Colors.white60, fontSize: 13),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton.tonalIcon(
+                    onPressed: () => _fetchStreams(engine, registry),
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    label: const Text('Try Refreshing Sources'),
+                  ),
+                ],
+              ),
+            ),
           ),
       ],
     );
@@ -331,11 +437,79 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
 
   Future<void> _fetchStreams(PlaybackEngine engine, ProviderRegistry registry) async {
     final imdbId = _meta?['imdb_id'] as String?;
-    final streamId = (imdbId != null && imdbId.isNotEmpty) ? imdbId : widget.id;
     await engine.fetchStreams(
       registry: registry,
       type: widget.type == 'movie' ? ContentType.movie : ContentType.series,
-      id: streamId,
+      id: widget.id,
+      metaImdbId: imdbId,
+      metaTmdbId: widget.tmdbId > 0 ? widget.tmdbId : null,
+      title: widget.title,
+    );
+  }
+}
+
+class _CategoryTabChip extends StatelessWidget {
+  const _CategoryTabChip({
+    required this.label,
+    required this.count,
+    required this.selected,
+    required this.color,
+    required this.onTap,
+  });
+
+  final String label;
+  final int count;
+  final bool selected;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? color.withValues(alpha: 0.25) : Colors.white10,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: selected ? color : Colors.white24,
+            width: selected ? 1.5 : 1.0,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? Colors.white : Colors.white70,
+                fontSize: 13,
+                fontWeight: selected ? FontWeight.bold : FontWeight.w500,
+              ),
+            ),
+            if (count > 0) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(
+                  color: selected ? color : Colors.white24,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '$count',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }
@@ -352,6 +526,21 @@ class _StreamCard extends StatelessWidget {
     final isWebEmbed = stream.behaviorHints?['isWebEmbed'] == true;
     final seeders = stream.behaviorHints?['seeders'] as int? ?? 0;
     final speed = stream.behaviorHints?['speed'] as String? ?? '';
+    final category = stream.behaviorHints?['category'] as String? ?? '';
+
+    Color iconColor = CinemahubColors.primary;
+    IconData iconData = Icons.play_arrow_rounded;
+
+    if (category == 'stremio') {
+      iconColor = Colors.purpleAccent;
+      iconData = Icons.bolt_rounded;
+    } else if (category == 'nuvio') {
+      iconColor = const Color(0xFF2A9D8F);
+      iconData = Icons.widgets_rounded;
+    } else if (category == 'cloudstream') {
+      iconColor = Colors.blueAccent;
+      iconData = Icons.cloud_rounded;
+    }
 
     return Card(
       elevation: 0,
@@ -367,14 +556,12 @@ class _StreamCard extends StatelessWidget {
           width: 40,
           height: 40,
           decoration: BoxDecoration(
-            color: isTorrent
-                ? Colors.purple.withValues(alpha: 0.2)
-                : CinemahubColors.primary.withValues(alpha: 0.2),
+            color: iconColor.withValues(alpha: 0.2),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Icon(
-            isTorrent ? Icons.bolt_rounded : Icons.play_arrow_rounded,
-            color: isTorrent ? Colors.purpleAccent : CinemahubColors.primary,
+            iconData,
+            color: iconColor,
           ),
         ),
         title: Row(
@@ -425,19 +612,33 @@ class _StreamCard extends StatelessWidget {
         ),
         trailing: const Icon(Icons.play_circle_fill_rounded, color: CinemahubColors.primary),
         onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => Scaffold(
-                backgroundColor: Colors.black,
-                body: CinemaPlayer(
-                  stream: stream,
+          if (isWebEmbed) {
+            // Direct launch of uBlock In-App ad-blocked player
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => InAppAdBlockedPlayer(
+                  url: stream.url,
                   title: contentTitle,
-                  allowExternalPlayer: true,
                 ),
               ),
-            ),
-          );
+            );
+          } else {
+            // Native Video Player / Chewie with external player fallback option
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => Scaffold(
+                  backgroundColor: Colors.black,
+                  body: CinemaPlayer(
+                    stream: stream,
+                    title: contentTitle,
+                    allowExternalPlayer: true,
+                  ),
+                ),
+              ),
+            );
+          }
         },
       ),
     );

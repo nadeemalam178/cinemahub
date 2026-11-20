@@ -76,7 +76,7 @@ class TmdbService {
       final response = await _dio.get('/movie/$id', queryParameters: {
         'api_key': _apiKey,
         'language': 'en-US',
-        'append_to_response': 'credits,similar',
+        'append_to_response': 'credits,similar,external_ids',
       });
       return response.data;
     } catch (e) {
@@ -91,11 +91,39 @@ class TmdbService {
       final response = await _dio.get('/tv/$id', queryParameters: {
         'api_key': _apiKey,
         'language': 'en-US',
-        'append_to_response': 'credits,similar,seasons',
+        'append_to_response': 'credits,similar,seasons,external_ids',
       });
       return response.data;
     } catch (e) {
       debugPrint('TMDB series details failed: $e');
+      return null;
+    }
+  }
+
+  /// Find content by external IMDb ID.
+  Future<Map<String, dynamic>?> findByImdbId(String imdbId) async {
+    try {
+      final response = await _dio.get('/find/$imdbId', queryParameters: {
+        'api_key': _apiKey,
+        'external_source': 'imdb_id',
+        'language': 'en-US',
+      });
+      final data = response.data as Map<String, dynamic>;
+      final movieResults = data['movie_results'] as List?;
+      if (movieResults != null && movieResults.isNotEmpty) {
+        final movie = movieResults.first as Map<String, dynamic>;
+        movie['media_type'] = 'movie';
+        return movie;
+      }
+      final tvResults = data['tv_results'] as List?;
+      if (tvResults != null && tvResults.isNotEmpty) {
+        final tv = tvResults.first as Map<String, dynamic>;
+        tv['media_type'] = 'series';
+        return tv;
+      }
+      return null;
+    } catch (e) {
+      debugPrint('TMDB findByImdbId failed: $e');
       return null;
     }
   }

@@ -2,7 +2,7 @@ name: cinemahub
 description: "CinemaHub — a private streaming platform for approved friends. Premium cinematic UI, Firebase auth, TMDB catalogue, Stremio-compatible providers, and cloud APK builds."
 publish_to: 'none'
 
-version: 1.3.0+4
+version: 1.4.0+5
 
 environment:
   sdk: ^3.13.7

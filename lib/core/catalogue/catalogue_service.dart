@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
+import 'stremio_catalog_service.dart';
 import 'tmdb_service.dart';
 
 /// Unified catalogue service for movies and TV series.
@@ -16,10 +17,13 @@ import 'tmdb_service.dart';
 class CatalogueService extends ChangeNotifier {
   CatalogueService({
     required this._tmdb,
+    StremioAddonCatalog? stremio,
     FirebaseFirestore? firestore,
-  }) : _firestoreInstance = firestore;
+  })  : _stremio = stremio ?? StremioAddonCatalog(),
+        _firestoreInstance = firestore;
 
   final TmdbService _tmdb;
+  final StremioAddonCatalog _stremio;
   final FirebaseFirestore? _firestoreInstance;
   FirebaseFirestore get _firestore => _firestoreInstance ?? FirebaseFirestore.instance;
   FirebaseFirestore get firestore => _firestore;
@@ -90,6 +94,17 @@ class CatalogueService extends ChangeNotifier {
 
     _cache['popular:series'] = content;
     return content;
+  }
+
+  /// Get Stremio community addon shelves (Cinemeta, Kitsu, etc.).
+  Future<List<StremioShelf>> getStremioShelves() async {
+    const cacheKey = 'stremio:shelves';
+    final cached = _cache[cacheKey];
+    if (cached != null) return cached as List<StremioShelf>;
+
+    final shelves = await _stremio.fetchAllShelves();
+    _cache[cacheKey] = shelves;
+    return shelves;
   }
 
   /// Get content by genre.
