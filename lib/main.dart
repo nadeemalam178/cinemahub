@@ -12,6 +12,7 @@ import 'core/sync/sync_service.dart';
 import 'core/catalogue/tmdb_service.dart';
 import 'core/catalogue/catalogue_service.dart';
 import 'core/admin/admin_service.dart';
+import 'core/update/update_service.dart';
 import 'core/providers/provider_registry.dart';
 import 'core/providers/stremio_adapter.dart';
 import 'core/player/playback_engine.dart';
@@ -59,6 +60,7 @@ void main() async {
   final playbackEngine = PlaybackEngine(adapter: adapter);
   final registry = ProviderRegistry();
   registry.load();
+  final updateService = UpdateService();
 
   authProvider.initialize(firebaseConfigured: firebaseConfigured);
 
@@ -77,6 +79,7 @@ void main() async {
         ChangeNotifierProvider<AdminService>.value(value: adminService),
         ChangeNotifierProvider<ProviderRegistry>.value(value: registry),
         ChangeNotifierProvider.value(value: playbackEngine),
+        Provider<UpdateService>.value(value: updateService),
         Provider<StremioAdapter>.value(value: adapter),
         Provider<TmdbService>.value(value: tmdbService),
       ],

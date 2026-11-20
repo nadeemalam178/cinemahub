@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/auth/auth_service.dart';
+import '../../core/update/update_service.dart';
 import '../../core/theme/cinemahub_colors.dart';
 import '../home/home_screen.dart';
 import '../search/search_screen.dart';
@@ -19,6 +20,27 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   int _index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkOtaUpdate();
+    });
+  }
+
+  Future<void> _checkOtaUpdate() async {
+    try {
+      final updateService = Provider.of<UpdateService?>(context, listen: false);
+      if (updateService == null) return;
+      final update = await updateService.checkForUpdate();
+      if (update != null && mounted) {
+        await updateService.showUpdateDialog(context, update);
+      }
+    } catch (_) {
+      // Non-intrusive: silent failure if offline or not configured
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

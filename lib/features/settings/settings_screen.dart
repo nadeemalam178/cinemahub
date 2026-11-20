@@ -1,15 +1,90 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/auth/auth_service.dart';
 import '../../core/admin/admin_service.dart';
+import '../../core/update/update_service.dart';
 import '../../core/theme/cinemahub_tokens.dart';
 import '../../core/theme/theme_provider.dart';
 import '../../features/admin/admin_dashboard.dart';
 
-/// Settings: theme, account, providers, about. Admin dashboard access.
-class SettingsScreen extends StatelessWidget {
+/// Settings: theme, account, providers, about, OTA updates. Admin dashboard access.
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  String _version = '...';
+  bool _checkingUpdates = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVersion();
+  }
+
+  Future<void> _loadVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (mounted) {
+        setState(() {
+          _version = 'v${info.version}+${info.buildNumber}';
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _version = 'v1.1.0';
+        });
+      }
+    }
+  }
+
+  Future<void> _checkForUpdates() async {
+    setState(() => _checkingUpdates = true);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    try {
+      final updateService = Provider.of<UpdateService?>(context, listen: false);
+      if (updateService == null) {
+        if (!mounted) return;
+        setState(() => _checkingUpdates = false);
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(
+            content: Text('Update service is currently unavailable.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+      final update = await updateService.checkForUpdate();
+      if (!mounted) return;
+      setState(() => _checkingUpdates = false);
+
+      if (update != null) {
+        await updateService.showUpdateDialog(context, update);
+      } else {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Text('You are on the latest version ($_version).'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _checkingUpdates = false);
+      scaffoldMessenger.showSnackBar(
+        SnackBar(
+          content: Text('Failed to check for updates: $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -82,11 +157,26 @@ class SettingsScreen extends StatelessWidget {
               subtitle: 'Contact owner for access',
             ),
           const Divider(),
-          _SectionTitle('About'),
+          _SectionTitle('About & Updates'),
           _OptionTile(
             icon: Icons.info_outline_rounded,
             title: 'Version',
-            subtitle: '1.0.0+1',
+            subtitle: _version,
+          ),
+          _OptionTile(
+            icon: Icons.system_update_alt_rounded,
+            title: 'Check for Updates',
+            subtitle: _checkingUpdates
+                ? 'Checking GitHub for releases...'
+                : 'Get the latest features and fixes',
+            trailing: _checkingUpdates
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : null,
+            onTap: _checkingUpdates ? null : _checkForUpdates,
           ),
         ],
       ),
