@@ -143,7 +143,14 @@ class _UserCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final status = user['status'] as String?;
+    final displayName = user['displayName'] as String?;
     final email = user['email'] as String?;
+    final titleText = (displayName != null && displayName.isNotEmpty)
+        ? displayName
+        : (email != null && email.isNotEmpty ? email : 'User');
+    final subtitleText = (displayName != null && displayName.isNotEmpty && email != null)
+        ? email
+        : null;
 
     return CinemaCard(
       onTap: status == 'pending' ? null : () {},
@@ -164,9 +171,18 @@ class _UserCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  email ?? 'Unknown',
+                  titleText,
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
+                if (subtitleText != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitleText,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Colors.grey,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 4),
                 Row(
                   children: [
