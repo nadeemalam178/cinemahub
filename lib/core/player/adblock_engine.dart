@@ -1,5 +1,3 @@
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
-
 /// uBlock Origin filter & anti-redirect rule engine for in-app video streams.
 class AdBlockEngine {
   AdBlockEngine._();
@@ -49,52 +47,18 @@ class AdBlockEngine {
     r'.*tracking.*',
   ];
 
-  /// Builds ContentBlockers for InAppWebView native request interception
-  static List<ContentBlocker> getContentBlockers() {
-    return [
-      ContentBlocker(
-        trigger: ContentBlockerTrigger(
-          urlFilter: '.*',
-          resourceType: [
-            ContentBlockerTriggerResourceType.IMAGE,
-            ContentBlockerTriggerResourceType.SCRIPT,
-            ContentBlockerTriggerResourceType.RAW,
-          ],
-          ifDomain: [
-            '*doubleclick.net',
-            '*googlesyndication.com',
-            '*popads.net',
-            '*popcash.net',
-            '*adsterra.com',
-            '*exoclick.com',
-            '*monetag.com',
-            '*betting*',
-            '*casino*',
-          ],
-        ),
-        action: ContentBlockerAction(
-          type: ContentBlockerActionType.BLOCK,
-        ),
-      ),
-      ContentBlocker(
-        trigger: ContentBlockerTrigger(
-          urlFilter: r'.*(popads|popcash|adsterra|exoclick|monetag|syndication|clickadu|adx|banners).*',
-        ),
-        action: ContentBlockerAction(
-          type: ContentBlockerActionType.BLOCK,
-        ),
-      ),
-      // Hide common ad overlay banners with CSS injection
-      ContentBlocker(
-        trigger: ContentBlockerTrigger(
-          urlFilter: '.*',
-        ),
-        action: ContentBlockerAction(
-          type: ContentBlockerActionType.CSS_DISPLAY_NONE,
-          selector: '.ad, .ads, .advert, .advertisement, [id*="banner"], [class*="banner"], [id*="pop"], [class*="pop"], div[style*="z-index: 2147483647"], div[style*="z-index: 999999"]',
-        ),
-      ),
-    ];
+  /// Checks if a navigation URL should be blocked
+  static bool shouldBlockUrl(String url) {
+    final lower = url.toLowerCase();
+    if (!lower.startsWith('http://') && !lower.startsWith('https://')) {
+      return true;
+    }
+    for (final pattern in blockedDomainPatterns) {
+      if (RegExp(pattern).hasMatch(lower)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /// uBlock Origin style UserScript to neutralize aggressive popups, window.open, and malicious redirects
@@ -116,7 +80,6 @@ class AdBlockEngine {
       var href = target.getAttribute('href');
       var targetAttr = target.getAttribute('target');
       if (targetAttr === '_blank' || (href && !href.startsWith('javascript:') && !href.includes(window.location.hostname))) {
-        // Drop ad outbound links
         e.preventDefault();
         e.stopPropagation();
         console.log('[CinemaHub uBlock] Blocked outbound ad link click:', href);
@@ -129,7 +92,12 @@ class AdBlockEngine {
   window.confirm = function() { return false; };
   window.prompt = function() { return null; };
 
-  // 4. Periodically remove transparent clickjack overlays placed on top of video players
+  // 4. CSS inject to hide ads and click-jack overlays
+  var style = document.createElement('style');
+  style.innerHTML = '.ad, .ads, .advert, .advertisement, [id*="banner"], [class*="banner"], [id*="pop"], [class*="pop"], div[style*="z-index: 2147483647"], div[style*="z-index: 999999"] { display: none !important; }';
+  document.head.appendChild(style);
+
+  // 5. Periodically remove transparent clickjack overlays
   setInterval(function() {
     var overlays = document.querySelectorAll('div, a, iframe');
     for (var i = 0; i < overlays.length; i++) {

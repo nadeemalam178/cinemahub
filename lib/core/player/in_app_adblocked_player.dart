@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 
 import '../theme/cinemahub_colors.dart';
 import 'adblock_engine.dart';
 
-/// In-App Web Player with built-in uBlock Origin ad-blocking rules & popup shields.
+/// In-App Web Player using official webview_flutter with uBlock Origin rules & shields.
 class InAppAdBlockedPlayer extends StatefulWidget {
   const InAppAdBlockedPlayer({
     super.key,
@@ -23,6 +23,7 @@ class InAppAdBlockedPlayer extends StatefulWidget {
 }
 
 class _InAppAdBlockedPlayerState extends State<InAppAdBlockedPlayer> {
+  late final WebViewController _controller;
   bool _loading = true;
   double _progress = 0;
   bool _isFullScreen = false;
@@ -30,12 +31,40 @@ class _InAppAdBlockedPlayerState extends State<InAppAdBlockedPlayer> {
   @override
   void initState() {
     super.initState();
-    // Default to landscape for cinematic video experience if desired, or user can toggle
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setUserAgent(
+        'Mozilla/5.0 (Linux; Android 13; Pixel 7 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+      )
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onProgress: (progress) {
+            if (mounted) {
+              setState(() {
+                _progress = progress / 100;
+                if (progress >= 90) _loading = false;
+              });
+            }
+          },
+          onPageFinished: (url) async {
+            if (mounted) setState(() => _loading = false);
+            // Inject uBlock Origin anti-ad & popup neutralizing scripts
+            await _controller.runJavaScript(AdBlockEngine.antiAdScript);
+          },
+          onNavigationRequest: (request) {
+            if (AdBlockEngine.shouldBlockUrl(request.url)) {
+              debugPrint('[uBlock Blocked Ad Navigation]: ${request.url}');
+              return NavigationDecision.prevent;
+            }
+            return NavigationDecision.navigate;
+          },
+        ),
+      )
+      ..loadRequest(Uri.parse(widget.url));
   }
 
   @override
   void dispose() {
-    // Restore orientations and system overlays on exit
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,
@@ -74,58 +103,8 @@ class _InAppAdBlockedPlayerState extends State<InAppAdBlockedPlayer> {
         bottom: !_isFullScreen,
         child: Stack(
           children: [
-            // 1. InAppWebView with uBlock Origin blockers & UserScript
-            InAppWebView(
-              initialUrlRequest: URLRequest(url: WebUri(widget.url)),
-              initialSettings: InAppWebViewSettings(
-                javaScriptEnabled: true,
-                mediaPlaybackRequiresUserGesture: false,
-                allowsInlineMediaPlayback: true,
-                useHybridComposition: true,
-                supportMultipleWindows: false, // Drop popup windows
-                javaScriptCanOpenWindowsAutomatically: false, // Drop window.open ads
-                contentBlockers: AdBlockEngine.getContentBlockers(),
-                userAgent:
-                    'Mozilla/5.0 (Linux; Android 13; Pixel 7 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-              ),
-              onWebViewCreated: (controller) {},
-              onProgressChanged: (controller, progress) {
-                setState(() {
-                  _progress = progress / 100;
-                  if (progress >= 95) _loading = false;
-                });
-              },
-              onLoadStop: (controller, url) async {
-                setState(() => _loading = false);
-                // Inject uBlock Origin anti-ad/anti-popup script
-                await controller.evaluateJavascript(source: AdBlockEngine.antiAdScript);
-              },
-              onCreateWindow: (controller, createWindowAction) async {
-                // Drop all popup windows created by video providers
-                return false;
-              },
-              shouldOverrideUrlLoading: (controller, navigationAction) async {
-                final uri = navigationAction.request.url;
-                if (uri == null) return NavigationActionPolicy.CANCEL;
-
-                final urlString = uri.toString().toLowerCase();
-
-                // Drop malicious schemes
-                if (!urlString.startsWith('http://') && !urlString.startsWith('https://')) {
-                  return NavigationActionPolicy.CANCEL;
-                }
-
-                // Check against uBlock ad domains
-                for (final pattern in AdBlockEngine.blockedDomainPatterns) {
-                  if (RegExp(pattern).hasMatch(urlString)) {
-                    debugPrint('[uBlock Blocked Ad Navigation]: $urlString');
-                    return NavigationActionPolicy.CANCEL;
-                  }
-                }
-
-                return NavigationActionPolicy.ALLOW;
-              },
-            ),
+            // 1. Official WebView with ad filtering
+            WebViewWidget(controller: _controller),
 
             // 2. Loading Indicator & Progress Bar
             if (_loading) ...[
@@ -155,7 +134,7 @@ class _InAppAdBlockedPlayerState extends State<InAppAdBlockedPlayer> {
               ),
             ],
 
-            // 3. Top Cinematic Floating Header (Back & Fullscreen controls)
+            // 3. Top Floating Header
             Positioned(
               top: 8,
               left: 8,

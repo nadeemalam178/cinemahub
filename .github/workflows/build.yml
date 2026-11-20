@@ -47,7 +47,6 @@ jobs:
       - name: Build APK (Release, arm64 only)
         run: |
           flutter build apk --release \
-            --android-skip-build-dependency-validation \
             --target-platform android-arm64 \
             --split-per-abi \
             --dart-define=TMDB_API_KEY=${{ secrets.TMDB_API_KEY }} \
