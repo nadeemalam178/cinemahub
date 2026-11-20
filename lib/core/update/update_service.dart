@@ -48,7 +48,10 @@ class UpdateService extends ChangeNotifier {
       final response = await _dio.get(
         'https://api.github.com/repos/$repo/releases/latest',
         options: Options(
-          headers: {'Accept': 'application/vnd.github.v3+json'},
+          headers: {
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'CinemaHub-App',
+          },
           validateStatus: (status) => status != null && status < 500,
         ),
       );

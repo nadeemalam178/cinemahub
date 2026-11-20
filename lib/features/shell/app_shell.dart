@@ -34,11 +34,11 @@ class _AppShellState extends State<AppShell> {
       final updateService = Provider.of<UpdateService?>(context, listen: false);
       if (updateService == null) return;
       final update = await updateService.checkForUpdate();
-      if (update != null && mounted) {
+      if (update != null && update.hasUpdate && mounted) {
         await updateService.showUpdateDialog(context, update);
       }
-    } catch (_) {
-      // Non-intrusive: silent failure if offline or not configured
+    } catch (e) {
+      debugPrint('AppShell OTA Check Error: $e');
     }
   }
 
