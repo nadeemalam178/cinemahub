@@ -168,6 +168,37 @@ class TmdbService {
     }
   }
 
+  /// Get top rated movies.
+  Future<List<Map<String, dynamic>>> getTopRatedMovies() async {
+    try {
+      final response = await _dio.get('/movie/top_rated', queryParameters: {
+        'api_key': _apiKey,
+        'language': 'en-US',
+        'page': 1,
+      });
+      return (response.data['results'] as List)
+          .cast<Map<String, dynamic>>();
+    } catch (e) {
+      debugPrint('TMDB top rated movies failed: $e');
+      return [];
+    }
+  }
+
+  /// Get trending all (movies + series) for hero carousel.
+  Future<List<Map<String, dynamic>>> getTrendingAll() async {
+    try {
+      final response = await _dio.get('/trending/all/day', queryParameters: {
+        'api_key': _apiKey,
+        'language': 'en-US',
+      });
+      return (response.data['results'] as List)
+          .cast<Map<String, dynamic>>();
+    } catch (e) {
+      debugPrint('TMDB trending all failed: $e');
+      return [];
+    }
+  }
+
   /// Get movies by genre.
   Future<List<Map<String, dynamic>>> getMoviesByGenre(int genreId) async {
     try {

@@ -44,15 +44,27 @@ class CatalogueService extends ChangeNotifier {
     });
   }
 
-  /// Get trending content.
+  /// Get trending content across movies and series.
   Future<List<Map<String, dynamic>>> getTrending() async {
     final cached = _cache['trending'];
     if (cached != null) return cached;
 
-    final movies = await _tmdb.getTrendingMovies();
-    final content = movies.map(_normalizeContent).toList();
+    final items = await _tmdb.getTrendingAll();
+    final content = items.map(_normalizeContent).toList();
 
     _cache['trending'] = content;
+    return content;
+  }
+
+  /// Get top rated movies.
+  Future<List<Map<String, dynamic>>> getTopRatedMovies() async {
+    final cached = _cache['top_rated:movies'];
+    if (cached != null) return cached;
+
+    final movies = await _tmdb.getTopRatedMovies();
+    final content = movies.map(_normalizeContent).toList();
+
+    _cache['top_rated:movies'] = content;
     return content;
   }
 

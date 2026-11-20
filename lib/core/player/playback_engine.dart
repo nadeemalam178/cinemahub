@@ -2,43 +2,20 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../providers/fmhy_provider_engine.dart';
 import '../providers/provider_model.dart';
 import '../providers/provider_registry.dart';
 import '../providers/stremio_adapter.dart';
 
-/// Result produced by the playback engine after evaluating all providers.
-class PlaybackResult {
-  const PlaybackResult({
-    required this.streams,
-    this.meta,
-    this.errors = const [],
-    this.providerFallbacks = const [],
-  });
-
-  /// Streams, ordered from highest-priority provider to lowest.
-  final List<StreamResult> streams;
-
-  /// Provider metadata (overview, genres, poster URLs).
-  final Map<String, dynamic>? meta;
-
-  /// Errors encountered per-provider so callers can surface them gracefully.
-  final List<String> errors;
-
-  /// Which provider was tried before failing, for diagnostic UI.
-  final List<String> providerFallbacks;
-}
-
-/// Multi-provider playback engine with fallback logic.
-///
-/// Responsibilities:
-///  * Walk through the enable-list of providers ordered by priority.
-///  * For each provider, check health before use.
-///  * Fetch streams via [StremioAdapter] and aggregate results.
-///  * Return the first viable stream when [requireOne] is true.
+/// Multi-provider playback engine with FMHY Auto-Fallback logic.
 class PlaybackEngine extends ChangeNotifier {
-  PlaybackEngine({required this._adapter});
+  PlaybackEngine({
+    required this.adapter,
+    FmhyProviderEngine? fmhyEngine,
+  })  : _fmhyEngine = fmhyEngine ?? const FmhyProviderEngine();
 
-  final StremioAdapter _adapter;
+  final StremioAdapter adapter;
+  final FmhyProviderEngine _fmhyEngine;
 
   List<StreamResult> _currentStreams = [];
   List<StreamResult> get currentStreams => _currentStreams;
@@ -49,11 +26,7 @@ class PlaybackEngine extends ChangeNotifier {
   String? _error;
   String? get error => _error;
 
-  /// Fetch playable streams for the given content across all enabled providers.
-  ///
-  /// If [providerId] is supplied only that provider is queried; otherwise every
-  /// enabled provider is tried in priority order until at least one stream is
-  /// found.
+  /// Fetch playable streams for the given content across FMHY servers and enabled providers.
   Future<void> loadStreams({
     required ProviderRegistry registry,
     required ContentType contentType,
@@ -67,20 +40,28 @@ class PlaybackEngine extends ChangeNotifier {
     _currentStreams = [];
     notifyListeners();
 
-    final targets = providerId != null
-        ? registry.enabled.where((p) => p.id == providerId).toList()
-        : registry.enabled;
-
-    if (targets.isEmpty) {
-      _error = 'No authorised providers available.';
-      _loading = false;
-      notifyListeners();
-      return;
-    }
-
     final allStreams = <StreamResult>[];
     final errors = <String>[];
     final fallbacks = <String>[];
+
+    // 1. First inject FMHY Multi-Server Scrapers
+    try {
+      final isSeries = contentType == ContentType.series || contentType == ContentType.episode;
+      final fmhyStreams = _fmhyEngine.resolveAllStreams(
+        tmdbId: id,
+        season: season ?? 1,
+        episode: episode ?? 1,
+        isSeries: isSeries,
+      );
+      allStreams.addAll(fmhyStreams);
+    } catch (e) {
+      debugPrint('FMHY Stream resolution error: $e');
+    }
+
+    // 2. Query enabled Stremio Providers as secondary sources
+    final targets = providerId != null
+        ? registry.enabled.where((p) => p.id == providerId).toList()
+        : registry.enabled;
 
     for (final provider in targets) {
       if (!provider.usable) {
@@ -128,7 +109,7 @@ class PlaybackEngine extends ChangeNotifier {
     }
 
     try {
-      final streams = await _adapter.fetchStreams(
+      final streams = await adapter.fetchStreams(
         baseUrl: baseUrl,
         type: type.name,
         id: id,
