@@ -15,6 +15,7 @@ import 'core/admin/admin_service.dart';
 import 'core/update/update_service.dart';
 import 'core/providers/provider_registry.dart';
 import 'core/providers/stremio_adapter.dart';
+import 'core/catalogue/id_resolver.dart';
 import 'core/player/playback_engine.dart';
 import 'package:dio/dio.dart' hide Response;
 
@@ -57,7 +58,8 @@ void main() async {
   final adminService = AdminService(auth: authProvider);
   final dio = Dio();
   final adapter = StremioAdapter(dio: dio);
-  final playbackEngine = PlaybackEngine(adapter: adapter);
+  final idResolver = IdResolver(tmdb: tmdbService, dio: dio);
+  final playbackEngine = PlaybackEngine(adapter: adapter, idResolver: idResolver);
   final registry = ProviderRegistry();
   registry.load();
   final updateService = UpdateService();

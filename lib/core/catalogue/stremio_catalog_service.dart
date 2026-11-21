@@ -43,7 +43,7 @@ class StremioAddonCatalog {
       'base': _cinemeta,
       'type': 'movie',
       'id': 'top',
-      'label': '🎬 Top Movies on Stremio',
+      'label': '🎬 Top Global Movies',
       'source': 'Cinemeta',
     },
     {
@@ -58,7 +58,7 @@ class StremioAddonCatalog {
       'base': _cinemeta,
       'type': 'series',
       'id': 'top',
-      'label': '📺 Top Series on Stremio',
+      'label': '📺 Trending Global Series',
       'source': 'Cinemeta',
     },
     {

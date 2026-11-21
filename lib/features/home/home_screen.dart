@@ -6,6 +6,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../../core/catalogue/catalogue_service.dart';
 import '../../core/catalogue/stremio_catalog_service.dart';
 import '../../core/theme/cinemahub_colors.dart';
+import '../../core/theme/cinemahub_logo.dart';
 
 /// Netflix-style cinematic home screen with dynamic billboard and curated shelves.
 class HomeScreen extends StatefulWidget {
@@ -144,36 +145,7 @@ class _HomeScreenState extends State<HomeScreen> {
             pinned: true,
             automaticallyImplyLeading: false, // Permanently removes back button
             backgroundColor: backgroundColor,
-            title: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: CinemahubColors.primary,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: const Text(
-                    'CINEMA',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 1.5,
-                      fontSize: 13,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 4),
-                const Text(
-                  'HUB',
-                  style: TextStyle(
-                    color: CinemahubColors.gold,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 1.5,
-                    fontSize: 13,
-                  ),
-                ),
-              ],
-            ),
+            title: const CinemaHubLogo(size: 22, showWordmark: true),
             actions: [
               IconButton(
                 onPressed: () => Navigator.pushNamed(context, '/search'),
@@ -280,7 +252,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             SizedBox(height: 10),
                             Text(
-                              'Loading Stremio community content…',
+                              'Curating global releases…',
                               style: TextStyle(color: Colors.grey, fontSize: 13),
                             ),
                           ],
@@ -298,20 +270,16 @@ class _HomeScreenState extends State<HomeScreen> {
                             padding: const EdgeInsets.symmetric(horizontal: 12),
                             child: Row(
                               children: [
-                                Image.network(
-                                  'https://www.stremio.com/website/stremio-icon.png',
-                                  width: 20,
-                                  height: 20,
-                                  errorBuilder: (context, error, stackTrace) =>
-                                      const Icon(Icons.extension_rounded,
-                                          color: CinemahubColors.primary,
-                                          size: 20),
+                                const Icon(
+                                  Icons.stars_rounded,
+                                  color: CinemahubColors.gold,
+                                  size: 20,
                                 ),
                                 const SizedBox(width: 8),
                                 const Text(
-                                  'STREMIO COMMUNITY',
+                                  'CURATED SPOTLIGHT',
                                   style: TextStyle(
-                                    color: Colors.white38,
+                                    color: Colors.white54,
                                     fontSize: 11,
                                     fontWeight: FontWeight.w700,
                                     letterSpacing: 1.5,

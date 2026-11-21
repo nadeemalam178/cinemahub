@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../catalogue/id_resolver.dart';
 import '../providers/cloudstream_provider_engine.dart';
@@ -68,6 +69,8 @@ class PlaybackEngine extends ChangeNotifier {
     int? metaTmdbId,
     String? title,
     ProviderRegistry? registry,
+    String? realDebridKey,
+    List<String>? customAddonUrls,
   }) async {
     _loading = true;
     _error = null;
@@ -77,6 +80,15 @@ class PlaybackEngine extends ChangeNotifier {
     final allStreams = <StreamResult>[];
     final errors = <String>[];
     final isMovie = type == ContentType.movie;
+
+    // Load any saved Real-Debrid API key from SharedPreferences if not provided explicitly
+    String? effectiveRdKey = realDebridKey;
+    List<String>? effectiveCustomAddons = customAddonUrls;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      effectiveRdKey ??= prefs.getString('real_debrid_key');
+      effectiveCustomAddons ??= prefs.getStringList('custom_stremio_addons');
+    } catch (_) {}
 
     // 1. Resolve IDs bi-directionally (clean TMDB ID + clean IMDb ID)
     final resolved = await _idResolver.resolve(
@@ -117,6 +129,8 @@ class PlaybackEngine extends ChangeNotifier {
               imdbId: cleanImdb,
               season: season,
               episode: episode,
+              realDebridKey: effectiveRdKey,
+              customAddonUrls: effectiveCustomAddons,
             );
             allStreams.addAll(torrents);
           } catch (e) {

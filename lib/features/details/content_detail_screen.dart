@@ -1,8 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/catalogue/catalogue_service.dart';
 import '../../core/catalogue/tmdb_service.dart';
 import '../../core/player/in_app_adblocked_player.dart';
 import '../../core/player/playback_engine.dart';
@@ -14,7 +17,8 @@ import '../../core/theme/cinemahub_colors.dart';
 import '../../core/theme/cinemahub_tokens.dart';
 import '../../core/theme/widgets.dart';
 
-/// Content detail screen showing metadata from TMDB/Stremio and categorized streams.
+/// Content detail screen showing metadata from TMDB, season/episode picker for TV series,
+/// and categorized streams (FMHY, Stremio/Torrentio, Nuvio, CloudStream).
 class ContentDetailScreen extends StatefulWidget {
   const ContentDetailScreen({
     super.key,
@@ -52,8 +56,14 @@ class ContentDetailScreen extends StatefulWidget {
 
 class _ContentDetailScreenState extends State<ContentDetailScreen> {
   Map<String, dynamic>? _meta;
-  int _selectedCategoryTab = 0; // 0: FMHY, 1: Stremio, 2: Nuvio, 3: CloudStream
+  int _selectedCategoryTab = 0; // 0: FMHY, 1: Addons (Torrentio), 2: Nuvio, 3: CloudStream
   bool _didAutoFetch = false;
+
+  // TV Series Season & Episode State
+  int _selectedSeason = 1;
+  int _selectedEpisode = 1;
+  List<Map<String, dynamic>> _episodes = [];
+  bool _loadingEpisodes = false;
 
   @override
   void initState() {
@@ -76,16 +86,47 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
         final result = await context.read<TmdbService>().getMovieDetails(tId);
         if (result != null && mounted) {
           setState(() => _meta = result);
+          _autoFetchStreams();
         }
       } else if (widget.type == 'series') {
         final result = await context.read<TmdbService>().getSeriesDetails(tId);
         if (result != null && mounted) {
           setState(() => _meta = result);
+          _loadEpisodes(_selectedSeason);
+          _autoFetchStreams();
         }
       }
     } catch (_) {
       // Silently handle TMDB fetch errors
     }
+  }
+
+  Future<void> _loadEpisodes(int season) async {
+    final tId = widget.tmdbId;
+    if (tId <= 0) return;
+    setState(() {
+      _selectedSeason = season;
+      _loadingEpisodes = true;
+    });
+
+    try {
+      final episodes = await context.read<CatalogueService>().getSeasonEpisodes(tId, season);
+      if (mounted) {
+        setState(() {
+          _episodes = episodes;
+          _loadingEpisodes = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loadingEpisodes = false);
+    }
+  }
+
+  void _onEpisodeSelected(int epNumber) {
+    setState(() => _selectedEpisode = epNumber);
+    final engine = context.read<PlaybackEngine>();
+    final registry = context.read<ProviderRegistry>();
+    _fetchStreams(engine, registry, season: _selectedSeason, episode: _selectedEpisode);
   }
 
   void _autoFetchStreams() {
@@ -98,6 +139,7 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: CustomScrollView(
+        physics: const BouncingScrollPhysics(),
         slivers: [
           _buildAppBar(),
           SliverToBoxAdapter(
@@ -107,6 +149,10 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildOverview(),
+                  if (widget.type == 'series') ...[
+                    const SizedBox(height: CinemahubSpacing.lg),
+                    _buildSeasonEpisodeSection(),
+                  ],
                   const SizedBox(height: CinemahubSpacing.lg),
                   _buildProviderSection(),
                 ],
@@ -140,7 +186,7 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
 
   Widget _buildAppBar() {
     return SliverAppBar(
-      expandedHeight: 300,
+      expandedHeight: 320,
       pinned: true,
       backgroundColor: CinemahubColors.background(Brightness.dark),
       flexibleSpace: FlexibleSpaceBar(
@@ -168,7 +214,7 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
                       Colors.transparent,
                       CinemahubColors.surface(Brightness.dark).withValues(alpha: 0.95),
                     ],
-                    stops: const [0.5, 1.0],
+                    stops: const [0.4, 1.0],
                   ),
                 ),
               ),
@@ -254,6 +300,137 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
     );
   }
 
+  Widget _buildSeasonEpisodeSection() {
+    final seasons = (_meta?['seasons'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    final validSeasons = seasons.where((s) => (s['season_number'] as int? ?? 0) > 0).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Episodes (Season $_selectedSeason)',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+            ),
+            if (validSeasons.isNotEmpty)
+              DropdownButton<int>(
+                value: _selectedSeason,
+                dropdownColor: CinemahubColors.darkSurface,
+                underline: const SizedBox.shrink(),
+                items: validSeasons.map((s) {
+                  final num = s['season_number'] as int? ?? 1;
+                  return DropdownMenuItem<int>(
+                    value: num,
+                    child: Text('Season $num', style: const TextStyle(color: Colors.white)),
+                  );
+                }).toList(),
+                onChanged: (s) {
+                  if (s != null) {
+                    _loadEpisodes(s);
+                    _onEpisodeSelected(1);
+                  }
+                },
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+
+        if (_loadingEpisodes)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 20),
+            child: Center(
+              child: CircularProgressIndicator(color: CinemahubColors.primary, strokeWidth: 2),
+            ),
+          )
+        else if (_episodes.isNotEmpty)
+          SizedBox(
+            height: 125,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: _episodes.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 12),
+              itemBuilder: (ctx, index) {
+                final ep = _episodes[index];
+                final epNum = ep['episode_number'] as int? ?? (index + 1);
+                final name = ep['name'] as String? ?? 'Episode $epNum';
+                final isSelected = epNum == _selectedEpisode;
+                final stillPath = ep['still_path'] as String?;
+
+                return GestureDetector(
+                  onTap: () => _onEpisodeSelected(epNum),
+                  child: Container(
+                    width: 155,
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? CinemahubColors.primary.withValues(alpha: 0.25)
+                          : CinemahubColors.darkSurface,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isSelected ? CinemahubColors.primary : Colors.white12,
+                        width: isSelected ? 1.5 : 1.0,
+                      ),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              if (stillPath != null)
+                                Image.network(
+                                  'https://image.tmdb.org/t/p/w300$stillPath',
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Container(color: Colors.black45),
+                                )
+                              else
+                                Container(
+                                  color: Colors.black45,
+                                  child: const Icon(Icons.movie_rounded, color: Colors.white30),
+                                ),
+                              if (isSelected)
+                                const Center(
+                                  child: Icon(Icons.play_circle_fill_rounded,
+                                      color: CinemahubColors.primary, size: 28),
+                                ),
+                            ],
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                          child: Text(
+                            'EP $epNum: $name',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: isSelected ? Colors.white : Colors.white70,
+                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          )
+        else
+          const Text(
+            'Episode details loading from TMDB...',
+            style: TextStyle(color: Colors.white54, fontSize: 12),
+          ),
+      ],
+    );
+  }
+
   static const Map<int, String> _genreMap = {
     28: 'Action', 12: 'Adventure', 16: 'Animation', 35: 'Comedy',
     80: 'Crime', 99: 'Documentary', 18: 'Drama', 10751: 'Family',
@@ -283,7 +460,7 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
         break;
       case 1:
         activeStreams = engine.stremioStreams;
-        emptyMessage = 'No Stremio addon torrents available';
+        emptyMessage = 'No Community Torrent / Debrid streams available';
         break;
       case 2:
         activeStreams = engine.nuvioStreams;
@@ -322,7 +499,7 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
                       Icon(Icons.shield_rounded, color: Colors.greenAccent, size: 12),
                       SizedBox(width: 4),
                       Text(
-                        'uBlock Active',
+                        'Zero-Ad Shield Active',
                         style: TextStyle(color: Colors.greenAccent, fontSize: 10, fontWeight: FontWeight.bold),
                       ),
                     ],
@@ -354,7 +531,7 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
               ),
               const SizedBox(width: 8),
               _CategoryTabChip(
-                label: 'Stremio Addons',
+                label: 'Torrents & Debrid',
                 count: stremioCount,
                 selected: _selectedCategoryTab == 1,
                 color: Colors.purpleAccent,
@@ -392,7 +569,7 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
                   CircularProgressIndicator(color: CinemahubColors.primary),
                   SizedBox(height: 12),
                   Text(
-                    'Scraping FMHY, Stremio, Nuvio & CloudStream...',
+                    'Scraping FMHY, Torrents, Nuvio & CloudStream...',
                     style: TextStyle(color: Colors.white70, fontSize: 13),
                   ),
                 ],
@@ -435,12 +612,17 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
     );
   }
 
-  Future<void> _fetchStreams(PlaybackEngine engine, ProviderRegistry registry) async {
+  Future<void> _fetchStreams(PlaybackEngine engine, ProviderRegistry registry, {int? season, int? episode}) async {
+    final s = season ?? (widget.type == 'series' ? _selectedSeason : null);
+    final ep = episode ?? (widget.type == 'series' ? _selectedEpisode : null);
     final imdbId = _meta?['imdb_id'] as String?;
+
     await engine.fetchStreams(
       registry: registry,
       type: widget.type == 'movie' ? ContentType.movie : ContentType.series,
       id: widget.id,
+      season: s,
+      episode: ep,
       metaImdbId: imdbId,
       metaTmdbId: widget.tmdbId > 0 ? widget.tmdbId : null,
       title: widget.title,
@@ -523,6 +705,8 @@ class _StreamCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isTorrent = stream.behaviorHints?['isTorrent'] == true;
+    final isDirectHttp = stream.behaviorHints?['isDirectHttp'] == true;
+    final isDebrid = stream.behaviorHints?['isDebrid'] == true;
     final isWebEmbed = stream.behaviorHints?['isWebEmbed'] == true;
     final seeders = stream.behaviorHints?['seeders'] as int? ?? 0;
     final speed = stream.behaviorHints?['speed'] as String? ?? '';
@@ -532,8 +716,8 @@ class _StreamCard extends StatelessWidget {
     IconData iconData = Icons.play_arrow_rounded;
 
     if (category == 'stremio') {
-      iconColor = Colors.purpleAccent;
-      iconData = Icons.bolt_rounded;
+      iconColor = isDebrid ? CinemahubColors.gold : Colors.purpleAccent;
+      iconData = isDebrid ? Icons.bolt_rounded : Icons.stream_rounded;
     } else if (category == 'nuvio') {
       iconColor = const Color(0xFF2A9D8F);
       iconData = Icons.widgets_rounded;
@@ -584,6 +768,18 @@ class _StreamCard extends StatelessWidget {
                   style: const TextStyle(color: Colors.purpleAccent, fontSize: 11, fontWeight: FontWeight.bold),
                 ),
               ),
+            if (isDebrid)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: CinemahubColors.gold.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Text(
+                  'DEBRID',
+                  style: TextStyle(color: CinemahubColors.gold, fontSize: 10, fontWeight: FontWeight.bold),
+                ),
+              ),
             if (isWebEmbed && speed.isNotEmpty)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -601,19 +797,41 @@ class _StreamCard extends StatelessWidget {
         subtitle: Padding(
           padding: const EdgeInsets.only(top: 4),
           child: Text(
-            isTorrent
-                ? 'Stremio P2P Stream • Torrentio/MediaFusion'
-                : '🛡️ In-App Player • Zero Ads / uBlock Shield',
+            isDebrid
+                ? '⚡ 4K Premium Debrid CDN • Zero Buffering / Zero Ads'
+                : (isTorrent
+                    ? 'P2P Stream • Open in VLC or External Player'
+                    : '🛡️ In-App Player • Zero-Ad Sandboxed Shield'),
             style: TextStyle(
-              color: isTorrent ? Colors.white60 : Colors.greenAccent.withValues(alpha: 0.8),
+              color: isDebrid
+                  ? CinemahubColors.gold
+                  : (isTorrent ? Colors.white60 : Colors.greenAccent.withValues(alpha: 0.8)),
               fontSize: 11,
             ),
           ),
         ),
         trailing: const Icon(Icons.play_circle_fill_rounded, color: CinemahubColors.primary),
         onTap: () {
-          if (isWebEmbed) {
-            // Direct launch of uBlock In-App ad-blocked player
+          if (isDirectHttp) {
+            // Direct MP4 / HLS stream: play natively in Chewie CinemaPlayer!
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => Scaffold(
+                  backgroundColor: Colors.black,
+                  body: CinemaPlayer(
+                    stream: stream,
+                    title: contentTitle,
+                    allowExternalPlayer: true,
+                  ),
+                ),
+              ),
+            );
+          } else if (stream.url.startsWith('magnet:')) {
+            // Torrent Magnet Stream: Offer to play in VLC or copy
+            _showMagnetOptions(context, stream.url);
+          } else if (isWebEmbed) {
+            // Sandboxed uBlock In-App ad-blocked player
             Navigator.push(
               context,
               MaterialPageRoute(
@@ -624,7 +842,7 @@ class _StreamCard extends StatelessWidget {
               ),
             );
           } else {
-            // Native Video Player / Chewie with external player fallback option
+            // Native fallback
             Navigator.push(
               context,
               MaterialPageRoute(
@@ -640,6 +858,77 @@ class _StreamCard extends StatelessWidget {
             );
           }
         },
+      ),
+    );
+  }
+
+  void _showMagnetOptions(BuildContext context, String magnetUri) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: CinemahubColors.darkSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.bolt_rounded, color: Colors.purpleAccent, size: 24),
+                SizedBox(width: 8),
+                Text(
+                  'Torrent Stream Options',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'This is a P2P magnet link. You can open it directly in VLC, Nova Video Player, or any installed torrent streaming app.',
+              style: TextStyle(color: Colors.white70, fontSize: 13),
+            ),
+            const SizedBox(height: 18),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: CinemahubColors.primary,
+                minimumSize: const Size.fromHeight(46),
+              ),
+              onPressed: () async {
+                Navigator.pop(ctx);
+                final uri = Uri.parse(magnetUri);
+                if (await canLaunchUrl(uri)) {
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                } else {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('No torrent player found. Please install VLC or LibreTorrent.')),
+                    );
+                  }
+                }
+              },
+              icon: const Icon(Icons.open_in_new_rounded),
+              label: const Text('Open in VLC / External Player'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(46),
+              ),
+              onPressed: () {
+                Navigator.pop(ctx);
+                Clipboard.setData(ClipboardData(text: magnetUri));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Magnet link copied to clipboard!')),
+                );
+              },
+              icon: const Icon(Icons.copy_rounded, size: 18),
+              label: const Text('Copy Magnet Link'),
+            ),
+          ],
+        ),
       ),
     );
   }
