@@ -59,6 +59,15 @@ class PlaybackEngine extends ChangeNotifier {
   String? _error;
   String? get error => _error;
 
+  String? _cachedRdKey;
+  List<String>? _cachedCustomAddons;
+
+  /// Update cached Real-Debrid and community addons
+  void updateDebridConfig({String? realDebridKey, List<String>? customAddons}) {
+    if (realDebridKey != null) _cachedRdKey = realDebridKey;
+    if (customAddons != null) _cachedCustomAddons = customAddons;
+  }
+
   /// Fetch playable streams for the given content across all 4 categories.
   Future<void> fetchStreams({
     required ContentType type,
@@ -82,13 +91,19 @@ class PlaybackEngine extends ChangeNotifier {
     final isMovie = type == ContentType.movie;
 
     // Load any saved Real-Debrid API key from SharedPreferences if not provided explicitly
-    String? effectiveRdKey = realDebridKey;
-    List<String>? effectiveCustomAddons = customAddonUrls;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      effectiveRdKey ??= prefs.getString('real_debrid_key');
-      effectiveCustomAddons ??= prefs.getStringList('custom_stremio_addons');
-    } catch (_) {}
+    String? effectiveRdKey = realDebridKey ?? _cachedRdKey;
+    List<String>? effectiveCustomAddons = customAddonUrls ?? _cachedCustomAddons;
+    if (effectiveRdKey == null || effectiveCustomAddons == null) {
+      try {
+        final prefs = await SharedPreferences.getInstance().timeout(
+          const Duration(milliseconds: 300),
+        );
+        effectiveRdKey ??= prefs.getString('real_debrid_key');
+        effectiveCustomAddons ??= prefs.getStringList('custom_stremio_addons');
+        _cachedRdKey = effectiveRdKey;
+        _cachedCustomAddons = effectiveCustomAddons;
+      } catch (_) {}
+    }
 
     // 1. Resolve IDs bi-directionally (clean TMDB ID + clean IMDb ID)
     final resolved = await _idResolver.resolve(

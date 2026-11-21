@@ -18,6 +18,7 @@ import 'package:cinemahub/core/sync/sync_service.dart';
 import 'package:cinemahub/core/network/connectivity_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:dio/dio.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 Widget createTestApp({
   required AuthService auth,
@@ -62,6 +63,7 @@ void main() {
     late AppRouter router;
 
     setUp(() {
+      SharedPreferences.setMockInitialValues({});
       mockAuth = AuthService.test();
       router = AppRouter(mockAuth);
     });
@@ -120,7 +122,8 @@ void main() {
           'title': 'Fight Club',
         },
       );
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
 
       expect(find.byType(ContentDetailScreen), findsOneWidget);
       expect(find.text('Fight Club'), findsOneWidget);
