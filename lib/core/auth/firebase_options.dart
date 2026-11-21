@@ -60,10 +60,14 @@ library;
 
 
 import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:io' show Platform;
 
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
+    if (kIsWeb) {
+      return web;
+    }
     if (Platform.isAndroid) {
       return android;
     }
@@ -206,10 +210,11 @@ class DefaultFirebaseOptions {
     if (options.projectId.isEmpty) missing.add('Project ID');
     if ((options.storageBucket ?? '').isEmpty) missing.add('Storage Bucket');
     if ((options.authDomain ?? '').isEmpty) missing.add('Auth Domain');
+    final osName = kIsWeb ? 'web' : Platform.operatingSystem;
     if (missing.isEmpty) {
-      return 'Firebase is configured for ${Platform.operatingSystem}.';
+      return 'Firebase is configured for $osName.';
     }
-    return 'Firebase is NOT configured for ${Platform.operatingSystem}. Missing: ${missing.join(', ')}. '
+    return 'Firebase is NOT configured for $osName. Missing: ${missing.join(', ')}. '
         'Add --dart-define values at build time.';
   }
 }
