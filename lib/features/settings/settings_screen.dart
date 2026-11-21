@@ -185,7 +185,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final theme = context.watch<ThemeProvider>();
     final auth = context.watch<AuthService>();
     final admin = context.watch<AdminService>();
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final hasDebrid = _realDebridKey.isNotEmpty;
 

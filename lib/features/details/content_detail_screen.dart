@@ -353,7 +353,7 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               itemCount: _episodes.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 12),
+              separatorBuilder: (context, index) => const SizedBox(width: 12),
               itemBuilder: (ctx, index) {
                 final ep = _episodes[index];
                 final epNum = ep['episode_number'] as int? ?? (index + 1);
@@ -387,7 +387,7 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
                                 Image.network(
                                   'https://image.tmdb.org/t/p/w300$stillPath',
                                   fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => Container(color: Colors.black45),
+                                  errorBuilder: (context, error, stackTrace) => Container(color: Colors.black45),
                                 )
                               else
                                 Container(

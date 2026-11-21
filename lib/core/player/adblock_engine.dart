@@ -64,7 +64,7 @@ class AdBlockEngine {
   }
 
   /// uBlock Origin style UserScript to neutralize aggressive popups, window.open, and malicious redirects
-  /// without accidentally deleting the actual video player iframes.
+  /// without accidentally deleting the actual video player iframes or controls.
   static const String antiAdScript = '''
 (function() {
   // 1. Prevent aggressive window.open popups & new tab hijacking
@@ -75,7 +75,7 @@ class AdBlockEngine {
     };
   } catch(e) {}
 
-  // 2. Neutralize unsolicited tab hijacking on element clicks
+  // 2. Neutralize unsolicited tab hijacking on outbound ad links
   document.addEventListener('click', function(e) {
     var target = e.target;
     while (target && target.tagName !== 'A' && target.parentElement) {
@@ -84,11 +84,26 @@ class AdBlockEngine {
     if (target && target.tagName === 'A') {
       var href = target.getAttribute('href') || '';
       var targetAttr = target.getAttribute('target');
-      if (targetAttr === '_blank' || (href && !href.startsWith('javascript:') && !href.includes(window.location.hostname))) {
-        e.preventDefault();
-        e.stopPropagation();
-        console.log('[CinemaHub Shield] Blocked outbound ad link click:', href);
+
+      // Do NOT interfere with internal anchors, player actions or relative paths
+      if (href === '#' || href === '' || href.startsWith('javascript:') || href.startsWith('/') || href.startsWith('?')) {
+        if (targetAttr === '_blank') {
+          target.removeAttribute('target');
+        }
+        return;
       }
+
+      // Check if genuine outbound third-party domain
+      try {
+        var linkHost = target.hostname || '';
+        if (linkHost && linkHost !== window.location.hostname && !linkHost.endsWith('.' + window.location.hostname)) {
+          e.preventDefault();
+          e.stopPropagation();
+          console.log('[CinemaHub Shield] Blocked outbound ad link click:', href);
+        } else if (targetAttr === '_blank') {
+          target.removeAttribute('target');
+        }
+      } catch(err) {}
     }
   }, true);
 
@@ -106,31 +121,15 @@ class AdBlockEngine {
     document.head.appendChild(style);
   } catch(e) {}
 
-  // 5. Neutralize full-screen transparent clickjacking overlays WITHOUT deleting video frames
-  setInterval(function() {
-    try {
-      var iframes = document.querySelectorAll('iframe');
-      for (var i = 0; i < iframes.length; i++) {
-        var ifr = iframes[i];
-        ifr.style.pointerEvents = 'auto';
-        ifr.setAttribute('allowfullscreen', 'true');
-      }
-
-      var overlays = document.querySelectorAll('div, a');
-      for (var j = 0; j < overlays.length; j++) {
-        var el = overlays[j];
-        var z = window.getComputedStyle(el).zIndex;
-        var pos = window.getComputedStyle(el).position;
-        var op = window.getComputedStyle(el).opacity;
-        // If an element is positioned fixed/absolute with huge z-index and nearly zero opacity, disable pointer events
-        if ((pos === 'fixed' || pos === 'absolute') && parseInt(z, 10) > 1000 && parseFloat(op) < 0.1) {
-          if (!el.querySelector('iframe') && !el.querySelector('video')) {
-            el.style.pointerEvents = 'none';
-          }
-        }
-      }
-    } catch(e) {}
-  }, 1000);
+  // 5. Ensure video player frames and elements have pointer events and fullscreen enabled
+  try {
+    var iframes = document.querySelectorAll('iframe');
+    for (var i = 0; i < iframes.length; i++) {
+      var ifr = iframes[i];
+      ifr.style.pointerEvents = 'auto';
+      ifr.setAttribute('allowfullscreen', 'true');
+    }
+  } catch(e) {}
 })();
 ''';
 }

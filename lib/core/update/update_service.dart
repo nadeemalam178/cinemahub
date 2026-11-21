@@ -7,7 +7,6 @@ import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../theme/cinemahub_colors.dart';
-import '../theme/cinemahub_tokens.dart';
 
 /// Information regarding an available OTA update.
 class UpdateInfo {

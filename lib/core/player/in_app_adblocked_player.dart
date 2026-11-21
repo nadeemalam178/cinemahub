@@ -28,7 +28,7 @@ class _InAppAdBlockedPlayerState extends State<InAppAdBlockedPlayer> {
   bool _loading = true;
   double _progress = 0;
   bool _isFullScreen = false;
-  bool _useSandboxedShield = true; // Sandboxed iframe isolation blocks 100% of popups/redirects
+  bool _useSandboxedShield = false; // Default to direct load so video embeds get true origin, referer & DOM storage
 
   @override
   void initState() {
@@ -60,6 +60,10 @@ class _InAppAdBlockedPlayerState extends State<InAppAdBlockedPlayer> {
             } catch (_) {}
           },
           onNavigationRequest: (request) {
+            // Never block initial target URL
+            if (request.url == widget.url) {
+              return NavigationDecision.navigate;
+            }
             if (AdBlockEngine.shouldBlockUrl(request.url)) {
               debugPrint('[CinemaHub Blocked Ad URL]: ${request.url}');
               return NavigationDecision.prevent;
@@ -80,7 +84,7 @@ class _InAppAdBlockedPlayerState extends State<InAppAdBlockedPlayer> {
 
   void _loadContent() {
     if (_useSandboxedShield) {
-      // Sandboxed Iframe: Completely isolates third-party embed scripts from triggering new window popups or redirects
+      // Sandboxed Iframe fallback if explicitly toggled by user
       final html = '''
 <!DOCTYPE html>
 <html>
@@ -112,7 +116,16 @@ class _InAppAdBlockedPlayerState extends State<InAppAdBlockedPlayer> {
 ''';
       _controller.loadHtmlString(html);
     } else {
-      _controller.loadRequest(Uri.parse(widget.url));
+      // Direct load gives the embed player legitimate Origin, Referer, and full access to media decoders & DOMStorage
+      final uri = Uri.parse(widget.url);
+      final referer = '${uri.scheme}://${uri.host}/';
+      _controller.loadRequest(
+        uri,
+        headers: {
+          'Referer': referer,
+          'Origin': '${uri.scheme}://${uri.host}',
+        },
+      );
     }
   }
 
