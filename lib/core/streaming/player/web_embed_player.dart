@@ -43,7 +43,7 @@ class _WebEmbedPlayerState extends State<WebEmbedPlayer> {
   String? _errorMessage;
   Timer? _watchdogTimer;
 
-  static const int _watchdogTimeoutSeconds = 20;
+  static const int _watchdogTimeoutSeconds = 90;
 
   @override
   void initState() {

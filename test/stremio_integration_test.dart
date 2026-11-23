@@ -237,7 +237,7 @@ void main() {
       expect(source.quality, '1080p FHD');
       expect(source.seeders, 42);
       expect(source.formattedSize, '2.3 GB');
-      expect(source.isPlayableInternally, isFalse); // Magnet requires external torrent client notice
+      expect(source.isPlayableInternally, isTrue); // Magnet playable internally via torrent streamer
     });
 
     test('never defaults unknown quality to 1080p or seeders to 10', () {

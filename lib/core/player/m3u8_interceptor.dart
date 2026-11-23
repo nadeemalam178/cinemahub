@@ -35,12 +35,12 @@ class M3u8Interceptor {
         if (!completer.isCompleted) completer.complete(null);
       },
       onReceivedError: (controller, req, error) {
-         if (!completer.isCompleted && req.isForMainFrame) {
+         if (!completer.isCompleted && req.isForMainFrame == true) {
             completer.complete(null);
          }
       },
       onReceivedHttpError: (controller, req, resp) {
-         if (!completer.isCompleted && req.isForMainFrame) {
+         if (!completer.isCompleted && req.isForMainFrame == true) {
             completer.complete(null);
          }
       }

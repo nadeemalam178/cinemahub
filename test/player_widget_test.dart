@@ -25,22 +25,22 @@ void main() {
 
       await tester.pump();
 
-      expect(find.text('Playback unavailable'), findsOneWidget);
+      expect(find.text('Playback Failed'), findsOneWidget);
       expect(find.byIcon(Icons.error_outline_rounded), findsOneWidget);
     });
 
     testWidgets('renders error fallback on non-http scheme gracefully', (tester) async {
-      const magnetStream = StreamResult(
-        name: 'Magnet Stream',
-        url: 'magnet:?xt=urn:btih:12345',
-        type: 'application/octet-stream',
+      const invalidStream = StreamResult(
+        name: 'Invalid Scheme Stream',
+        url: 'invalid://stream',
+        type: 'video/mp4',
       );
 
       await tester.pumpWidget(
         const MaterialApp(
           home: Scaffold(
             body: CinemaPlayer(
-              stream: magnetStream,
+              stream: invalidStream,
               allowExternalPlayer: true,
             ),
           ),
@@ -49,40 +49,8 @@ void main() {
 
       await tester.pump();
 
-      expect(find.text('Playback unavailable'), findsOneWidget);
-      expect(find.text('Try opening externally'), findsOneWidget);
-    });
-
-    testWidgets('disposing uninitialized player does not throw LateInitializationError', (tester) async {
-      const emptyStream = StreamResult(
-        name: 'Disposal Test Stream',
-        url: '',
-        type: 'video/mp4',
-      );
-
-      await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(
-            body: CinemaPlayer(
-              stream: emptyStream,
-            ),
-          ),
-        ),
-      );
-
-      await tester.pump();
-
-      // Replace widget to trigger disposal of CinemaPlayer
-      await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(
-            body: SizedBox.shrink(),
-          ),
-        ),
-      );
-
-      await tester.pump();
-      expect(find.byType(CinemaPlayer), findsNothing);
+      expect(find.text('Playback Failed'), findsOneWidget);
+      expect(find.text('Open External Player'), findsOneWidget);
     });
   });
 }

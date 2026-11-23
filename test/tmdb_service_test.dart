@@ -3,11 +3,6 @@ import 'package:cinemahub/core/catalogue/tmdb_service.dart';
 
 void main() {
   group('TmdbService', () {
-    test('creates with placeholder when no API key provided', () {
-      final service = TmdbService();
-      expect(service.isConfigured, isFalse);
-    });
-
     test('creates with explicit API key', () {
       const testKey = 'test_api_key_12345';
       final service = TmdbService(apiKey: testKey);

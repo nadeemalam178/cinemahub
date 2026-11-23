@@ -33,19 +33,21 @@ class AuthService extends ChangeNotifier {
     return AuthService(
       auth: null,
       firestore: null,
-      googleSignIn: GoogleSignIn.instance,
+      googleSignIn: null,
     );
   }
 
   AuthService({
-    this._auth,
-    this._firestore,
+    FirebaseAuth? auth,
+    FirebaseFirestore? firestore,
     GoogleSignIn? googleSignIn,
-  })  : _googleSignIn = googleSignIn ?? GoogleSignIn.instance;
+  })  : _auth = auth,
+        _firestore = firestore,
+        _googleSignIn = googleSignIn ?? (auth == null ? null : GoogleSignIn.instance);
 
   final FirebaseAuth? _auth;
   final FirebaseFirestore? _firestore;
-  final GoogleSignIn _googleSignIn;
+  final GoogleSignIn? _googleSignIn;
 
   AuthState _state = AuthState.loading;
   AuthState get state => _state;
@@ -73,7 +75,8 @@ class AuthService extends ChangeNotifier {
   Future<void>? _initFuture;
 
   /// Ensures [GoogleSignIn.initialize] is executed strictly once and safely reused.
-  Future<void> _ensureInitialized() {
+  Future<void> _ensureInitialized() async {
+    if (_googleSignIn == null) return;
     const serverClientId = String.fromEnvironment(
       'GOOGLE_SERVER_CLIENT_ID',
       defaultValue: _defaultWebClientId,
@@ -81,7 +84,7 @@ class AuthService extends ChangeNotifier {
     _initFuture ??= _googleSignIn.initialize(
       serverClientId: serverClientId,
     );
-    return _initFuture!;
+    await _initFuture!;
   }
 
   /// Called from main() after optional Firebase wiring.
@@ -214,9 +217,12 @@ class AuthService extends ChangeNotifier {
       );
     }
     try {
+      if (_googleSignIn == null) {
+        throw AuthConfigException('Google Sign-In is not initialized.');
+      }
       await _ensureInitialized();
 
-      final GoogleSignInAccount? account = await _googleSignIn.authenticate();
+      final GoogleSignInAccount? account = await _googleSignIn!.authenticate();
       if (account == null) {
         // User dismissed the account picker dialog
         return;
@@ -262,7 +268,7 @@ class AuthService extends ChangeNotifier {
     await _userDocSub?.cancel();
     _userDocSub = null;
     try {
-      await _googleSignIn.signOut();
+      await _googleSignIn?.signOut();
     } catch (_) {}
     if (_auth != null) {
       await _auth.signOut();

@@ -271,7 +271,7 @@ class _NativeVideoPlayerState extends State<NativeVideoPlayer> {
     _disposeControllers();
     final url = widget.source.url ?? '';
     final isMagnet = widget.source.type == StreamType.magnet || url.startsWith('magnet:?');
-    if (isMagnet) {
+    if (isMagnet && TorrentStreamer.isInitialised) {
       try {
         TorrentStreamer.stop();
         TorrentStreamer.dispose();

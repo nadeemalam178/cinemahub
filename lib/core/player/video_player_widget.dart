@@ -7,8 +7,9 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:torrent_streamer/torrent_streamer.dart';
 
 import '../../core/streaming/models/stream_source.dart';
+import '../../core/providers/stremio_adapter.dart';
 import '../../core/theme/cinemahub_colors.dart';
-import '../../core/theme/cinemahub_spacing.dart';
+import '../../core/theme/cinemahub_tokens.dart';
 import 'in_app_adblocked_player.dart';
 import 'm3u8_interceptor.dart';
 
@@ -179,9 +180,11 @@ class _CinemaPlayerState extends State<CinemaPlayer>
     _chewieController?.dispose();
     _fadeController.dispose();
     final isMagnet = widget.stream.type == 'application/x-bittorrent' || widget.stream.behaviorHints?['isTorrent'] == true || widget.stream.url.startsWith('magnet:');
-    if (isMagnet) {
-       TorrentStreamer.stop();
-       TorrentStreamer.dispose();
+    if (isMagnet && TorrentStreamer.isInitialised) {
+       try {
+         TorrentStreamer.stop();
+         TorrentStreamer.dispose();
+       } catch (_) {}
     }
     super.dispose();
   }

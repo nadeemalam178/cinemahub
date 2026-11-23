@@ -200,8 +200,8 @@ void main() {
       );
 
       final decision = router.route(source);
-      expect(decision.player, TargetPlayer.torrentNotice);
-      expect(decision.reason, contains('sequential torrent streaming engine is not yet implemented'));
+      expect(decision.player, TargetPlayer.nativePlayer);
+      expect(decision.reason, contains('BitTorrent P2P magnet link routed to internal Torrent Streamer'));
     });
 
     test('rejects empty stream URLs as Unsupported', () {
