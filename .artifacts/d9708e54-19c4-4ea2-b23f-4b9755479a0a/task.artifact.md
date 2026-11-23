@@ -1,0 +1,5 @@
+- `[ ]` Step 1: Complete frontend architecture review and static analysis (`flutter analyze`)
+- `[ ]` Step 2: Modularize large UI components (`content_detail_screen.dart`, `home_screen.dart`)
+- `[ ]` Step 3: Enhance error handling, provider timeouts, and lifecycle disposal
+- `[ ]` Step 4: Run automated tests (`flutter test`) and verify build/runtime health
+- `[ ]` Step 5: Final review and documentation update
