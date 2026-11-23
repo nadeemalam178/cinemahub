@@ -6,7 +6,6 @@ import 'package:video_player/video_player.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:torrent_streamer/torrent_streamer.dart';
 
-import '../../core/streaming/models/stream_source.dart';
 import '../../core/providers/stremio_adapter.dart';
 import '../../core/theme/cinemahub_colors.dart';
 import '../../core/theme/cinemahub_tokens.dart';
@@ -121,7 +120,7 @@ class _CinemaPlayerState extends State<CinemaPlayer>
       if (mounted) setState(() => _statusText = 'Connecting to Video Stream...');
 
       final controller = VideoPlayerController.networkUrl(
-        uri!,
+        uri,
         httpHeaders: headers,
       );
       _controller = controller;

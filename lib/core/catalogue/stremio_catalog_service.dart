@@ -28,9 +28,6 @@ class StremioAddonCatalog {
   // ---------------------------------------------------------------------------
 
   static const String _cinemeta = 'https://v3-cinemeta.strem.io';
-  static const String _kitsu = 'https://anime-kitsu.strem.io';
-  static const String _rpdb =
-      'https://stremio-addon-rpdb.elfhosted.com'; // Poster-DB (community)
 
   // ---------------------------------------------------------------------------
   // Catalog definitions

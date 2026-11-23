@@ -2,7 +2,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/auth/auth_service.dart';
-import '../../core/theme/cinemahub_colors.dart';
 import '../../core/theme/cinemahub_logo.dart';
 import '../../core/theme/cinemahub_tokens.dart';
 import '../settings/playback_diagnostics_screen.dart';
@@ -20,18 +19,15 @@ class SignInScreen extends StatefulWidget {
 
 class _SignInScreenState extends State<SignInScreen> {
   bool _loading = false;
-  String? _error;
 
   Future<void> _signIn() async {
     setState(() {
       _loading = true;
-      _error = null;
     });
     try {
       await widget.auth.signInWithGoogle();
     } catch (e) {
       if (mounted) {
-        setState(() => _error = e.toString());
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
@@ -63,8 +59,6 @@ class _SignInScreenState extends State<SignInScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return Scaffold(
       backgroundColor: const Color(0xFF08080E),
       body: Stack(
@@ -241,11 +235,8 @@ class _GoogleGLogoPainter extends CustomPainter {
     final center = Offset(w / 2, h / 2);
     final radius = w / 2;
 
-    // Paint blue, red, yellow, green quadrants
+    // Center bar (Blue)
     final bluePaint = Paint()..color = const Color(0xFF4285F4);
-    final greenPaint = Paint()..color = const Color(0xFF34A853);
-    final yellowPaint = Paint()..color = const Color(0xFFFBBC05);
-    final redPaint = Paint()..color = const Color(0xFFEA4335);
 
     // Center bar (Blue)
     final barRect = RRect.fromRectAndRadius(

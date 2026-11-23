@@ -43,8 +43,6 @@ class _WebEmbedPlayerState extends State<WebEmbedPlayer> {
   String? _errorMessage;
   Timer? _watchdogTimer;
 
-  static const int _watchdogTimeoutSeconds = 90;
-
   @override
   void initState() {
     super.initState();
@@ -52,22 +50,7 @@ class _WebEmbedPlayerState extends State<WebEmbedPlayer> {
   }
 
   void _startWatchdogTimer() {
-    _watchdogTimer?.cancel();
-    _watchdogTimer = Timer(const Duration(seconds: _watchdogTimeoutSeconds), () {
-      if (mounted && !_hasDetectedVideo && _errorMessage == null) {
-        final targetUrl = widget.source.url ?? '';
-        SourceHealthChecker.instance.recordFailure(
-          targetUrl,
-          failureType: HealthStatus.timeout,
-          error: 'Playback initialization timed out after ${_watchdogTimeoutSeconds}s without video output',
-        );
-        setState(() {
-          _errorMessage =
-              'Server took too long to start video playback. The embed source may be temporarily unavailable, restricted, or blocked.';
-          _isLoading = false;
-        });
-      }
-    });
+    // Watchdog disabled so WebView remains visible for user interaction with play controls
   }
 
   void _initWebView() {

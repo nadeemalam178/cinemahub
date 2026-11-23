@@ -42,6 +42,7 @@ class AuthService extends ChangeNotifier {
     FirebaseFirestore? firestore,
     GoogleSignIn? googleSignIn,
   })  : _auth = auth,
+        // ignore: prefer_initializing_formals
         _firestore = firestore,
         _googleSignIn = googleSignIn ?? (auth == null ? null : GoogleSignIn.instance);
 
@@ -217,19 +218,14 @@ class AuthService extends ChangeNotifier {
       );
     }
     try {
-      if (_googleSignIn == null) {
+      final googleSignIn = _googleSignIn;
+      if (googleSignIn == null) {
         throw AuthConfigException('Google Sign-In is not initialized.');
       }
       await _ensureInitialized();
 
-      final GoogleSignInAccount? account = await _googleSignIn!.authenticate();
-      if (account == null) {
-        // User dismissed the account picker dialog
-        return;
-      }
-
-      final GoogleSignInAuthentication authInfo = await account.authentication;
-      final idToken = authInfo.idToken;
+      final account = await googleSignIn.authenticate();
+      final idToken = account.authentication.idToken;
 
       debugPrint('Google Sign-In account: ${account.email}, idToken: ${idToken != null}');
 
