@@ -53,6 +53,7 @@ jobs:
             --target-platform android-arm64 \
             --split-per-abi \
             --no-tree-shake-icons \
+            --android-skip-build-dependency-validation \
             --dart-define=TMDB_API_KEY=${{ secrets.TMDB_API_KEY }} \
             --dart-define=GOOGLE_SERVER_CLIENT_ID=${{ secrets.GOOGLE_SERVER_CLIENT_ID }} \
             --dart-define=FIREBASE_API_KEY=${{ secrets.FIREBASE_API_KEY }} \
