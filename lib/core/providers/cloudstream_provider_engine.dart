@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'stremio_adapter.dart';
 
 /// CloudStream provider engine.
@@ -70,16 +71,31 @@ class CloudStreamProviderEngine {
             for (final st in streams) {
               if (st is Map && st['url'] != null) {
                 final url = st['url'] as String;
-                final quality = st['quality'] as String? ?? '1080p';
-                final isDirect = url.contains('.m3u8') || url.contains('.mp4');
+                final quality = st['quality'] as String? ?? 'HD';
+                final lower = url.toLowerCase();
+                
+                String mimeType = 'text/html';
+                bool isDirect = false;
+
+                if (lower.contains('.m3u8')) {
+                  mimeType = 'application/x-mpegURL';
+                  isDirect = true;
+                } else if (lower.contains('.mp4') || lower.contains('.mkv') || lower.contains('.webm')) {
+                  mimeType = 'video/mp4';
+                  isDirect = true;
+                } else if (lower.contains('.mpd')) {
+                  mimeType = 'application/dash+xml';
+                  isDirect = true;
+                }
 
                 results.add(StreamResult(
                   url: url,
                   name: '${engine['name']} • $quality',
-                  type: isDirect ? 'application/x-mpegURL' : 'text/html',
+                  type: mimeType,
                   behaviorHints: {
                     'isWebEmbed': !isDirect,
-                    'title': 'CloudStream Engine • $quality',
+                    'isDirectHttp': isDirect,
+                    'title': '${engine['name']} • $quality',
                     'quality': quality,
                     'category': 'cloudstream',
                     'categoryLabel': 'CloudStream',
@@ -90,23 +106,9 @@ class CloudStreamProviderEngine {
             }
           }
         }
-      } catch (_) {
-        // Fallback: Embed stream resolver
-        results.add(StreamResult(
-          url: isMovie
-              ? '${engine['embedUrl']}?id=$id'
-              : '${engine['embedUrl']}?id=$id&s=$s&e=$ep',
-          name: '${engine['name']} • Fast HD',
-          type: 'text/html',
-          behaviorHints: {
-            'isWebEmbed': true,
-            'title': '🛡️ uBlock In-App Player • CloudStream Multi-Source',
-            'quality': '1080p HD',
-            'category': 'cloudstream',
-            'categoryLabel': 'CloudStream',
-            'provider': engine['name']!,
-          },
-        ));
+      } catch (e) {
+        // Log provider error without injecting unverified fallback URLs
+        debugPrint('CloudStream engine ${engine['id']} error: $e');
       }
     }
 
