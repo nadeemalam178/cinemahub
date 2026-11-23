@@ -2,13 +2,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:shimmer/shimmer.dart';
 
 import '../../core/catalogue/catalogue_service.dart';
 import '../../core/catalogue/stremio_catalog_service.dart';
 import '../../core/theme/cinemahub_colors.dart';
 import '../../core/theme/cinemahub_logo.dart';
 
-/// Netflix-style cinematic home screen with dynamic billboard and curated shelves.
+/// Clean, cinematic home screen with dynamic billboard and curated shelves.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -98,7 +99,8 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final backgroundColor = isDark ? CinemahubColors.darkBackground : CinemahubColors.lightBackground;
+    final backgroundColor =
+        isDark ? CinemahubColors.darkBackground : CinemahubColors.lightBackground;
 
     if (_loading) {
       return Scaffold(
@@ -116,11 +118,13 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.error_outline_rounded, size: 48, color: CinemahubColors.danger),
+              const Icon(Icons.error_outline_rounded,
+                  size: 48, color: CinemahubColors.danger),
               const SizedBox(height: 12),
               Text(
                 'Failed to load catalogue',
-                style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 16),
+                style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black, fontSize: 16),
               ),
               const SizedBox(height: 16),
               FilledButton(
@@ -139,11 +143,11 @@ class _HomeScreenState extends State<HomeScreen> {
       backgroundColor: backgroundColor,
       body: CustomScrollView(
         slivers: [
-          // 1. App Bar with NO BACK BUTTON
+          // 1. App Bar with Hero Billboard
           SliverAppBar(
-            expandedHeight: 460,
+            expandedHeight: 450,
             pinned: true,
-            automaticallyImplyLeading: false, // Permanently removes back button
+            automaticallyImplyLeading: false,
             backgroundColor: backgroundColor,
             title: const CinemaHubLogo(size: 22, showWordmark: true),
             actions: [
@@ -195,50 +199,49 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   // Top 10 Today Row
                   if (_selectedFilter == 0 || _selectedFilter == 1) ...[
-                    _SectionHeader(title: '🔥 Top 10 in CinemaHub Today'),
+                    const _SectionHeader(title: 'Top 10 Today'),
                     _buildTop10List(_trending.take(10).toList()),
                     const SizedBox(height: 24),
                   ],
 
                   // Trending Now
-                  _SectionHeader(title: 'Trending Now'),
+                  const _SectionHeader(title: 'Trending Now'),
                   _buildContentRow(_trending),
                   const SizedBox(height: 24),
 
                   // Popular Movies
                   if (_selectedFilter == 0 || _selectedFilter == 1) ...[
-                    _SectionHeader(title: 'Blockbuster Movies'),
+                    const _SectionHeader(title: 'Popular Movies'),
                     _buildContentRow(_popularMovies),
                     const SizedBox(height: 24),
                   ],
 
                   // Popular Series
                   if (_selectedFilter == 0 || _selectedFilter == 2) ...[
-                    _SectionHeader(title: 'Popular TV Series'),
+                    const _SectionHeader(title: 'Popular TV Series'),
                     _buildContentRow(_popularSeries),
                     const SizedBox(height: 24),
                   ],
 
                   // Top Rated Cinema
                   if (_selectedFilter == 0 || _selectedFilter == 1) ...[
-                    _SectionHeader(title: 'Top Rated Masterpieces'),
+                    const _SectionHeader(title: 'Top Rated'),
                     _buildContentRow(_topRated),
                     const SizedBox(height: 24),
                   ],
 
                   // Action Thrillers
-                  _SectionHeader(title: 'High-Octane Action'),
+                  const _SectionHeader(title: 'Action & Adventure'),
                   _buildContentRow(_actionMovies),
                   const SizedBox(height: 24),
 
                   // Sci-Fi & Fantasy
-                  _SectionHeader(title: 'Sci-Fi & Cyberpunk'),
+                  const _SectionHeader(title: 'Sci-Fi & Fantasy'),
                   _buildContentRow(_sciFiMovies),
                   const SizedBox(height: 32),
 
                   // ══════════════════════════════════════════════════════
                   // STREMIO COMMUNITY ADDON SHELVES
-                  // Loaded async in background after TMDB shelves render
                   // ══════════════════════════════════════════════════════
                   if (_stremioLoading)
                     const Padding(
@@ -253,46 +256,43 @@ class _HomeScreenState extends State<HomeScreen> {
                             SizedBox(height: 10),
                             Text(
                               'Curating global releases…',
-                              style: TextStyle(color: Colors.grey, fontSize: 13),
+                              style:
+                                  TextStyle(color: Colors.grey, fontSize: 13),
                             ),
                           ],
                         ),
                       ),
                     )
                   else if (_stremioShelves.isNotEmpty) ...[
-                    // Stremio section divider
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                       child: Row(
                         children: [
-                          Expanded(child: Divider(color: Colors.white12)),
+                          Expanded(
+                              child: Divider(
+                                  color: isDark
+                                      ? Colors.white12
+                                      : Colors.black12)),
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 12),
-                            child: Row(
-                              children: [
-                                const Icon(
-                                  Icons.stars_rounded,
-                                  color: CinemahubColors.gold,
-                                  size: 20,
-                                ),
-                                const SizedBox(width: 8),
-                                const Text(
-                                  'CURATED SPOTLIGHT',
-                                  style: TextStyle(
-                                    color: Colors.white54,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: 1.5,
-                                  ),
-                                ),
-                              ],
+                            child: Text(
+                              'COMMUNITY SPOTLIGHT',
+                              style: TextStyle(
+                                color: isDark ? Colors.white54 : Colors.black45,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 1.5,
+                              ),
                             ),
                           ),
-                          Expanded(child: Divider(color: Colors.white12)),
+                          Expanded(
+                              child: Divider(
+                                  color: isDark
+                                      ? Colors.white12
+                                      : Colors.black12)),
                         ],
                       ),
                     ),
-                    // Render each Stremio shelf
                     for (final shelf in _stremioShelves) ...[
                       _StremioShelfHeader(
                         label: shelf.label,
@@ -347,7 +347,9 @@ class _HomeScreenState extends State<HomeScreen> {
     if (items.isEmpty) {
       return const SizedBox(
         height: 190,
-        child: Center(child: Text('No content available', style: TextStyle(color: Colors.grey))),
+        child: Center(
+            child: Text('No content available',
+                style: TextStyle(color: Colors.grey))),
       );
     }
 
@@ -385,7 +387,9 @@ class _FilterChip extends StatelessWidget {
         decoration: BoxDecoration(
           color: selected
               ? CinemahubColors.primary
-              : (isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05)),
+              : (isDark
+                  ? Colors.white10
+                  : Colors.black.withValues(alpha: 0.05)),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: selected ? CinemahubColors.primary : Colors.transparent,
@@ -394,7 +398,9 @@ class _FilterChip extends StatelessWidget {
         child: Text(
           label,
           style: TextStyle(
-            color: selected ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
+            color: selected
+                ? Colors.white
+                : (isDark ? Colors.white70 : Colors.black87),
             fontWeight: selected ? FontWeight.bold : FontWeight.w500,
             fontSize: 13,
           ),
@@ -419,14 +425,14 @@ class _SectionHeader extends StatelessWidget {
           color: isDark ? Colors.white : Colors.black87,
           fontSize: 18,
           fontWeight: FontWeight.bold,
-          letterSpacing: 0.3,
+          letterSpacing: 0.2,
         ),
       ),
     );
   }
 }
 
-/// Netflix-style Billboard with auto-sliding TMDB hero title
+/// Netflix-style Billboard with smooth auto-sliding hero title
 class _HeroBillboard extends StatefulWidget {
   const _HeroBillboard({required this.items});
   final List<Map<String, dynamic>> items;
@@ -444,16 +450,15 @@ class _HeroBillboardState extends State<_HeroBillboard> {
   void initState() {
     super.initState();
     _pageController = PageController();
-    // Only schedule timer if not in a widget test environment to avoid pumpAndSettle timeouts
     final isTesting = WidgetsBinding.instance is! WidgetsFlutterBinding;
     if (widget.items.length > 1 && !isTesting) {
-      _timer = Timer.periodic(const Duration(seconds: 6), (_) {
+      _timer = Timer.periodic(const Duration(seconds: 7), (_) {
         if (!mounted || widget.items.isEmpty) return;
         _currentPage = (_currentPage + 1) % widget.items.length;
         _pageController.animateToPage(
           _currentPage,
-          duration: const Duration(milliseconds: 700),
-          curve: Curves.easeInOutCubic,
+          duration: const Duration(milliseconds: 600),
+          curve: Curves.easeOutCubic,
         );
       });
     }
@@ -468,7 +473,9 @@ class _HeroBillboardState extends State<_HeroBillboard> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.items.isEmpty) return Container(color: CinemahubColors.darkBackground);
+    if (widget.items.isEmpty) {
+      return Container(color: CinemahubColors.darkBackground);
+    }
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return PageView.builder(
@@ -477,11 +484,15 @@ class _HeroBillboardState extends State<_HeroBillboard> {
       onPageChanged: (i) => _currentPage = i,
       itemBuilder: (context, index) {
         final item = widget.items[index];
-        final backdrop = item['backdropUrl'] as String? ?? item['posterUrl'] as String? ?? '';
+        final backdrop = item['backdropUrl'] as String? ??
+            item['posterUrl'] as String? ??
+            '';
         final title = item['title'] as String? ?? 'Featured Title';
         final rating = (item['rating'] as num?)?.toDouble() ?? 0.0;
         final releaseDate = item['releaseDate'] as String? ?? '';
-        final year = releaseDate.isNotEmpty && releaseDate.length >= 4 ? releaseDate.substring(0, 4) : '';
+        final year = releaseDate.isNotEmpty && releaseDate.length >= 4
+            ? releaseDate.substring(0, 4)
+            : '';
 
         return Stack(
           fit: StackFit.expand,
@@ -491,8 +502,12 @@ class _HeroBillboardState extends State<_HeroBillboard> {
               CachedNetworkImage(
                 imageUrl: backdrop,
                 fit: BoxFit.cover,
-                placeholder: (context, url) => Container(color: Colors.black26),
-                errorWidget: (context, url, error) => Container(color: Colors.black38),
+                placeholder: (context, url) => Container(
+                  color: isDark ? const Color(0xFF14141F) : Colors.black12,
+                ),
+                errorWidget: (context, url, error) => Container(
+                  color: isDark ? const Color(0xFF14141F) : Colors.black12,
+                ),
               )
             else
               Container(color: CinemahubColors.darkSurface),
@@ -522,7 +537,9 @@ class _HeroBillboardState extends State<_HeroBillboard> {
                     end: Alignment.bottomCenter,
                     colors: [
                       Colors.transparent,
-                      isDark ? CinemahubColors.darkBackground : CinemahubColors.lightBackground,
+                      isDark
+                          ? CinemahubColors.darkBackground
+                          : CinemahubColors.lightBackground,
                     ],
                   ),
                 ),
@@ -538,35 +555,20 @@ class _HeroBillboardState extends State<_HeroBillboard> {
                 crossAxisAlignment: CrossAxisAlignment.center,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: CinemahubColors.primary.withValues(alpha: 0.9),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Text(
-                      'FEATURED SPOTLIGHT',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 10,
-                        letterSpacing: 1.2,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
                   Text(
                     title,
                     textAlign: TextAlign.center,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black87,
+                      fontSize: 22,
                       fontWeight: FontWeight.w900,
-                      shadows: [
-                        Shadow(color: Colors.black87, blurRadius: 10),
-                      ],
+                      shadows: isDark
+                          ? const [
+                              Shadow(color: Colors.black87, blurRadius: 12)
+                            ]
+                          : null,
                     ),
                   ),
                   const SizedBox(height: 6),
@@ -576,12 +578,17 @@ class _HeroBillboardState extends State<_HeroBillboard> {
                       if (year.isNotEmpty) ...[
                         Text(
                           year,
-                          style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600),
+                          style: TextStyle(
+                            color: isDark ? Colors.white70 : Colors.black54,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                         const SizedBox(width: 12),
                       ],
                       if (rating > 0) ...[
-                        const Icon(Icons.star_rounded, size: 16, color: CinemahubColors.gold),
+                        const Icon(Icons.star_rounded,
+                            size: 16, color: CinemahubColors.gold),
                         const SizedBox(width: 4),
                         Text(
                           rating.toStringAsFixed(1),
@@ -600,12 +607,14 @@ class _HeroBillboardState extends State<_HeroBillboard> {
                     children: [
                       FilledButton.icon(
                         style: FilledButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: Colors.black,
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                          backgroundColor: CinemahubColors.primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 24, vertical: 12),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(24),
                           ),
+                          elevation: 3,
                         ),
                         onPressed: () {
                           Navigator.pushNamed(
@@ -614,18 +623,26 @@ class _HeroBillboardState extends State<_HeroBillboard> {
                             arguments: item,
                           );
                         },
-                        icon: const Icon(Icons.play_arrow_rounded, size: 24),
+                        icon: const Icon(Icons.play_arrow_rounded, size: 22),
                         label: const Text(
                           'Watch Now',
-                          style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 14),
                         ),
                       ),
                       const SizedBox(width: 12),
                       OutlinedButton.icon(
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.white,
-                          side: const BorderSide(color: Colors.white60, width: 1.5),
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                          foregroundColor:
+                              isDark ? Colors.white : Colors.black87,
+                          side: BorderSide(
+                            color: isDark
+                                ? Colors.white.withValues(alpha: 0.3)
+                                : Colors.black26,
+                            width: 1.2,
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 12),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(24),
                           ),
@@ -637,10 +654,11 @@ class _HeroBillboardState extends State<_HeroBillboard> {
                             arguments: item,
                           );
                         },
-                        icon: const Icon(Icons.info_outline_rounded, size: 20),
+                        icon: const Icon(Icons.info_outline_rounded, size: 18),
                         label: const Text(
                           'Details',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                          style: TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 13),
                         ),
                       ),
                     ],
@@ -655,7 +673,7 @@ class _HeroBillboardState extends State<_HeroBillboard> {
   }
 }
 
-/// Top 10 Numbered Card
+/// Clean Top 10 Numbered Card with balanced typography
 class _Top10Card extends StatelessWidget {
   const _Top10Card({required this.rank, required this.item});
   final int rank;
@@ -663,6 +681,7 @@ class _Top10Card extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final posterUrl = item['posterUrl'] as String? ?? '';
 
     return GestureDetector(
@@ -674,26 +693,11 @@ class _Top10Card extends StatelessWidget {
         );
       },
       child: SizedBox(
-        width: 150,
+        width: 145,
         child: Stack(
+          clipBehavior: Clip.none,
           children: [
-            // Giant Number on the Left
-            Positioned(
-              left: 0,
-              bottom: -15,
-              child: Text(
-                '$rank',
-                style: TextStyle(
-                  fontSize: 100,
-                  fontWeight: FontWeight.w900,
-                  foreground: Paint()
-                    ..style = PaintingStyle.stroke
-                    ..strokeWidth = 3
-                    ..color = Colors.white38,
-                ),
-              ),
-            ),
-            // Poster Card Offset to the Right
+            // Poster Card
             Positioned(
               right: 0,
               top: 0,
@@ -704,11 +708,40 @@ class _Top10Card extends StatelessWidget {
                 child: CachedNetworkImage(
                   imageUrl: posterUrl,
                   fit: BoxFit.cover,
-                  placeholder: (context, url) => Container(color: Colors.white10),
-                  errorWidget: (context, url, error) => Container(
-                    color: Colors.white10,
-                    child: const Icon(Icons.movie_rounded, color: Colors.white30),
+                  placeholder: (context, url) => Shimmer.fromColors(
+                    baseColor: isDark
+                        ? const Color(0xFF161622)
+                        : Colors.grey.shade300,
+                    highlightColor: isDark
+                        ? const Color(0xFF242436)
+                        : Colors.grey.shade100,
+                    child: Container(color: Colors.white),
                   ),
+                  errorWidget: (context, url, error) => Container(
+                    color: isDark ? Colors.white10 : Colors.black12,
+                    child: const Icon(Icons.movie_rounded,
+                        color: Colors.white30),
+                  ),
+                ),
+              ),
+            ),
+            // Clean, bold rank numeral on the bottom left
+            Positioned(
+              left: 4,
+              bottom: -6,
+              child: Text(
+                '$rank',
+                style: TextStyle(
+                  fontSize: 72,
+                  fontWeight: FontWeight.w900,
+                  color: isDark ? Colors.white : Colors.black87,
+                  shadows: [
+                    Shadow(
+                      color: Colors.black.withValues(alpha: 0.6),
+                      blurRadius: 8,
+                      offset: const Offset(2, 2),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -719,7 +752,7 @@ class _Top10Card extends StatelessWidget {
   }
 }
 
-/// Movie poster card for horizontal rows
+/// Movie poster card for horizontal rows with smooth shimmer placeholders
 class MovieCard extends StatelessWidget {
   const MovieCard({super.key, required this.item});
   final Map<String, dynamic> item;
@@ -752,15 +785,14 @@ class MovieCard extends StatelessWidget {
                   imageUrl: posterUrl,
                   fit: BoxFit.cover,
                   width: double.infinity,
-                  placeholder: (context, url) => Container(
-                    color: isDark ? Colors.white10 : Colors.black12,
-                    child: const Center(
-                      child: SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    ),
+                  placeholder: (context, url) => Shimmer.fromColors(
+                    baseColor: isDark
+                        ? const Color(0xFF161622)
+                        : Colors.grey.shade300,
+                    highlightColor: isDark
+                        ? const Color(0xFF242436)
+                        : Colors.grey.shade100,
+                    child: Container(color: Colors.white),
                   ),
                   errorWidget: (context, url, error) => Container(
                     color: isDark ? Colors.white10 : Colors.black12,
@@ -784,7 +816,8 @@ class MovieCard extends StatelessWidget {
             if (rating > 0)
               Row(
                 children: [
-                  const Icon(Icons.star_rounded, size: 14, color: CinemahubColors.gold),
+                  const Icon(Icons.star_rounded,
+                      size: 14, color: CinemahubColors.gold),
                   const SizedBox(width: 3),
                   Text(
                     rating.toStringAsFixed(1),
@@ -804,7 +837,7 @@ class MovieCard extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Stremio shelf header widget — shows addon name badge
+// Stremio shelf header widget
 // ---------------------------------------------------------------------------
 class _StremioShelfHeader extends StatelessWidget {
   const _StremioShelfHeader({required this.label, required this.source});
@@ -826,6 +859,7 @@ class _StremioShelfHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
       child: Row(
@@ -833,8 +867,8 @@ class _StremioShelfHeader extends StatelessWidget {
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: isDark ? Colors.white : Colors.black87,
                 fontSize: 17,
                 fontWeight: FontWeight.bold,
                 letterSpacing: 0.2,
@@ -844,9 +878,8 @@ class _StremioShelfHeader extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color: _sourceColor.withValues(alpha: 0.2),
-              border: Border.all(color: _sourceColor.withValues(alpha: 0.5)),
-              borderRadius: BorderRadius.circular(12),
+              color: _sourceColor.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(10),
             ),
             child: Text(
               source,
@@ -865,7 +898,7 @@ class _StremioShelfHeader extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Stremio content card — same look as MovieCard with source badge
+// Stremio content card with shimmer
 // ---------------------------------------------------------------------------
 class _StremioCard extends StatelessWidget {
   const _StremioCard({required this.item});
@@ -892,52 +925,33 @@ class _StremioCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child: Stack(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: posterUrl.isNotEmpty
-                        ? CachedNetworkImage(
-                            imageUrl: posterUrl,
-                            fit: BoxFit.cover,
-                            width: double.infinity,
-                            placeholder: (context, url) => Container(
-                              color: isDark ? Colors.white10 : Colors.black12,
-                            ),
-                            errorWidget: (context, url, error) => Container(
-                              color: isDark ? Colors.white10 : Colors.black12,
-                              child: const Icon(Icons.movie_rounded,
-                                  color: Colors.grey),
-                            ),
-                          )
-                        : Container(
-                            color: isDark ? Colors.white10 : Colors.black12,
-                            child: const Icon(Icons.movie_rounded,
-                                color: Colors.grey),
-                          ),
-                  ),
-                  // "Stremio" badge on top-right
-                  Positioned(
-                    top: 6,
-                    right: 6,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 5, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF7B2FBE).withValues(alpha: 0.85),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: const Text(
-                        'S',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 9,
-                          fontWeight: FontWeight.w900,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: posterUrl.isNotEmpty
+                    ? CachedNetworkImage(
+                        imageUrl: posterUrl,
+                        fit: BoxFit.cover,
+                        width: double.infinity,
+                        placeholder: (context, url) => Shimmer.fromColors(
+                          baseColor: isDark
+                              ? const Color(0xFF161622)
+                              : Colors.grey.shade300,
+                          highlightColor: isDark
+                              ? const Color(0xFF242436)
+                              : Colors.grey.shade100,
+                          child: Container(color: Colors.white),
                         ),
+                        errorWidget: (context, url, error) => Container(
+                          color: isDark ? Colors.white10 : Colors.black12,
+                          child: const Icon(Icons.movie_rounded,
+                              color: Colors.grey),
+                        ),
+                      )
+                    : Container(
+                        color: isDark ? Colors.white10 : Colors.black12,
+                        child: const Icon(Icons.movie_rounded,
+                            color: Colors.grey),
                       ),
-                    ),
-                  ),
-                ],
               ),
             ),
             const SizedBox(height: 6),

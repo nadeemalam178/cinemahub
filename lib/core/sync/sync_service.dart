@@ -117,6 +117,76 @@ class SyncService extends ChangeNotifier {
     if (_connectivity.online) _flush();
   }
 
+  /// Adds an item to the user's watchlist
+  Future<void> addToWatchlist(Map<String, dynamic> item) async {
+    final uid = _auth.user?.uid;
+    if (uid == null) return;
+    final contentId = item['id'] as String;
+    
+    _enqueue(() async {
+      await _firestore
+          .collection('users')
+          .doc(uid)
+          .collection('watchlist')
+          .doc(contentId)
+          .set({
+        ...item,
+        'addedAt': FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
+  /// Removes an item from the user's watchlist
+  Future<void> removeFromWatchlist(String contentId) async {
+    final uid = _auth.user?.uid;
+    if (uid == null) return;
+    
+    _enqueue(() async {
+      await _firestore
+          .collection('users')
+          .doc(uid)
+          .collection('watchlist')
+          .doc(contentId)
+          .delete();
+    });
+  }
+
+  /// Checks if an item is in the user's watchlist
+  Future<bool> isInWatchlist(String contentId) async {
+    final uid = _auth.user?.uid;
+    if (uid == null) return false;
+    try {
+      final doc = await _firestore
+          .collection('users')
+          .doc(uid)
+          .collection('watchlist')
+          .doc(contentId)
+          .get();
+      return doc.exists;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Gets the user's watchlist (for Library/My List screen).
+  Future<List<Map<String, dynamic>>> getWatchlist() async {
+    final uid = _auth.user?.uid;
+    if (uid == null) return [];
+
+    try {
+      final snapshot = await _firestore
+          .collection('users')
+          .doc(uid)
+          .collection('watchlist')
+          .orderBy('addedAt', descending: true)
+          .get();
+      return snapshot.docs.map((d) => d.data()).toList();
+    } catch (e) {
+      debugPrint('Failed to load watchlist: $e');
+      return [];
+    }
+  }
+
   /// Gets the user's watch history (for Library/Watchlist screen).
   Future<List<Map<String, dynamic>>> getWatchHistory() async {
     final uid = _auth.user?.uid;

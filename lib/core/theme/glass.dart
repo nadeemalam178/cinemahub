@@ -5,6 +5,7 @@ import 'cinemahub_colors.dart';
 import 'cinemahub_tokens.dart';
 
 /// Frosted / Liquid-Glass surface with ambient lighting and depth borders.
+/// Ideal for floating bars and modal surfaces where content scrolls underneath.
 class GlassPanel extends StatelessWidget {
   const GlassPanel({
     super.key,
@@ -69,7 +70,8 @@ class GlassPanel extends StatelessWidget {
   }
 }
 
-/// Frosted Glass Card for lists, stats, and settings items.
+/// High-performance elevated card for lists, stats, and settings items.
+/// Avoids heavy nested BackdropFilter overhead while maintaining crisp cinematic aesthetics.
 class GlassCard extends StatelessWidget {
   const GlassCard({
     super.key,
@@ -91,21 +93,47 @@ class GlassCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final r = BorderRadius.circular(borderRadius);
 
-    Widget content = GlassPanel(
-      radius: BorderRadius.circular(borderRadius),
-      blur: 16,
-      tint: accentColor != null
-          ? accentColor!.withValues(alpha: isDark ? 0.12 : 0.08)
-          : (isDark ? const Color(0xFF181824).withValues(alpha: 0.65) : Colors.white.withValues(alpha: 0.7)),
+    final baseColor = isDark
+        ? const Color(0xFF13131D)
+        : Colors.white;
+
+    Widget content = Container(
       padding: padding,
+      decoration: BoxDecoration(
+        borderRadius: r,
+        color: accentColor != null
+            ? accentColor!.withValues(alpha: isDark ? 0.12 : 0.06)
+            : baseColor,
+        border: Border.all(
+          color: accentColor != null
+              ? accentColor!.withValues(alpha: 0.25)
+              : (isDark
+                  ? Colors.white.withValues(alpha: 0.08)
+                  : Colors.black.withValues(alpha: 0.06)),
+          width: 1.0,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.25 : 0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
       child: child,
     );
 
     if (onTap != null) {
-      content = GestureDetector(
-        onTap: onTap,
-        child: content,
+      content = Material(
+        color: Colors.transparent,
+        borderRadius: r,
+        child: InkWell(
+          borderRadius: r,
+          onTap: onTap,
+          child: content,
+        ),
       );
     }
 

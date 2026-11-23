@@ -1,10 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/cinemahub_colors.dart';
 import '../../core/theme/cinemahub_logo.dart';
 import '../../core/theme/cinemahub_tokens.dart';
 
-/// Branded splash with cinematic ambient lighting, 3D animated emblem, and smooth wordmark reveal.
+/// Clean, cinematic splash screen with smooth fade transition and automatic timeout protection.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key, required this.onFinished});
 
@@ -20,43 +21,55 @@ class _SplashScreenState extends State<SplashScreen>
   late final Animation<double> _fade;
   late final Animation<double> _scale;
   late final Animation<double> _taglineFade;
+  Timer? _timeoutTimer;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1800),
+      duration: const Duration(milliseconds: 1000),
     );
 
+    // Smooth, cinematic opacity reveal
     _fade = CurvedAnimation(
       parent: _controller,
-      curve: const Interval(0.0, 0.65, curve: Curves.easeIn),
+      curve: const Interval(0.0, 0.7, curve: Curves.easeOutCubic),
     );
 
-    _scale = Tween<double>(begin: 0.75, end: 1.0).animate(
+    // Subtle, graceful scale: starts at 0.94x and settles naturally at 1.0x
+    _scale = Tween<double>(begin: 0.94, end: 1.0).animate(
       CurvedAnimation(
         parent: _controller,
-        curve: const Interval(0.0, 0.75, curve: Curves.easeOutBack),
+        curve: const Interval(0.0, 0.85, curve: Curves.easeOutCubic),
       ),
     );
 
     _taglineFade = CurvedAnimation(
       parent: _controller,
-      curve: const Interval(0.45, 0.95, curve: Curves.easeIn),
+      curve: const Interval(0.4, 1.0, curve: Curves.easeIn),
     );
 
     _controller.addStatusListener((status) {
       if (status == AnimationStatus.completed) {
-        widget.onFinished();
+        // Wait a brief moment at full visibility, then complete
+        Future.delayed(const Duration(milliseconds: 600), () {
+          if (mounted) widget.onFinished();
+        });
       }
     });
 
     _controller.forward();
+
+    // Safety timeout: Guarantee transition even if animation or auth event is delayed
+    _timeoutTimer = Timer(const Duration(milliseconds: 2200), () {
+      if (mounted) widget.onFinished();
+    });
   }
 
   @override
   void dispose() {
+    _timeoutTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -64,27 +77,27 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color(0xFF08080E),
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // 1. Ambient Background Glow
+          // 1. Ambient Background Vignette
           Container(
             decoration: const BoxDecoration(
               gradient: RadialGradient(
                 center: Alignment(0.0, -0.1),
-                radius: 0.95,
+                radius: 1.0,
                 colors: [
-                  Color(0xFF2E0509),
-                  Color(0xFF120305),
-                  Colors.black,
+                  Color(0xFF22050D),
+                  Color(0xFF100307),
+                  Color(0xFF08080E),
                 ],
                 stops: [0.0, 0.5, 1.0],
               ),
             ),
           ),
 
-          // 2. Center Content with animated logo & wordmark
+          // 2. Centered Logo and Tagline
           Center(
             child: FadeTransition(
               opacity: _fade,
@@ -93,47 +106,36 @@ class _SplashScreenState extends State<SplashScreen>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Animated 3D Logo Emblem
                     const CinemaHubLogo(
-                      size: 72,
-                      showWordmark: false,
+                      size: 46,
+                      showWordmark: true,
                       animated: true,
                     ),
-                    const SizedBox(height: CinemahubSpacing.xxl),
-
-                    // Wordmark
-                    const CinemaHubLogo(
-                      size: 26,
-                      showWordmark: true,
-                    ),
-
-                    const SizedBox(height: CinemahubSpacing.lg),
-
-                    // Tagline
+                    const SizedBox(height: CinemahubSpacing.xl),
                     FadeTransition(
                       opacity: _taglineFade,
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Container(
-                            width: 24,
+                            width: 20,
                             height: 1,
                             color: Colors.white24,
                           ),
                           const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 10),
+                            padding: EdgeInsets.symmetric(horizontal: 12),
                             child: Text(
-                              'YOUR PRIVATE CINEMA',
+                              'PRIVATE STREAMING PLATFORM',
                               style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 12,
+                                color: Colors.white60,
+                                fontSize: 11,
                                 fontWeight: FontWeight.w600,
-                                letterSpacing: 2.5,
+                                letterSpacing: 2.2,
                               ),
                             ),
                           ),
                           Container(
-                            width: 24,
+                            width: 20,
                             height: 1,
                             color: Colors.white24,
                           ),
@@ -155,11 +157,12 @@ class _SplashScreenState extends State<SplashScreen>
               child: FadeTransition(
                 opacity: _taglineFade,
                 child: const SizedBox(
-                  width: 22,
-                  height: 22,
+                  width: 20,
+                  height: 20,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(CinemahubColors.primary),
+                    valueColor:
+                        AlwaysStoppedAnimation<Color>(CinemahubColors.primary),
                   ),
                 ),
               ),

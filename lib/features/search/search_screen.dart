@@ -1,12 +1,12 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/catalogue/catalogue_service.dart';
-import '../../core/theme/cinemahub_tokens.dart';
-import '../../core/theme/widgets.dart';
-import '../home/home_screen.dart' show MovieCard;
+import '../../core/theme/cinemahub_colors.dart';
 
-/// Search across movies and series with TMDB integration.
+/// Futuristic Search Screen with live multi-category filtering,
+/// high-density responsive poster grid, and smooth vertical scrolling.
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
 
@@ -15,175 +15,580 @@ class SearchScreen extends StatefulWidget {
 }
 
 class _SearchScreenState extends State<SearchScreen> {
-  final _controller = TextEditingController();
+  final TextEditingController _controller = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
+
   String _query = '';
   bool _loading = false;
   List<Map<String, dynamic>> _movies = [];
   List<Map<String, dynamic>> _series = [];
 
+  // Filter: 0 = All, 1 = Movies, 2 = Series
+  int _selectedFilter = 0;
+
+  final List<String> _quickSearches = [
+    'Cyberpunk',
+    'Sci-Fi',
+    'Anime',
+    'Batman',
+    'Marvel',
+    'Interstellar',
+  ];
+
   @override
   void dispose() {
     _controller.dispose();
+    _focusNode.dispose();
     super.dispose();
+  }
+
+  void _onSearchChanged(CatalogueService catalogue, String value) {
+    setState(() => _query = value);
+    if (value.trim().isNotEmpty) {
+      setState(() => _loading = true);
+      catalogue.search(
+        query: value.trim(),
+        onMovies: (movies) {
+          if (!mounted) return;
+          setState(() => _movies = movies);
+        },
+        onSeries: (series) {
+          if (!mounted) return;
+          setState(() {
+            _series = series;
+            _loading = false;
+          });
+        },
+      );
+    } else {
+      setState(() {
+        _movies = [];
+        _series = [];
+        _loading = false;
+      });
+    }
+  }
+
+  List<Map<String, dynamic>> get _filteredResults {
+    switch (_selectedFilter) {
+      case 1:
+        return _movies;
+      case 2:
+        return _series;
+      default:
+        // Interleave movies & series
+        final list = <Map<String, dynamic>>[];
+        final maxLen = _movies.length > _series.length ? _movies.length : _series.length;
+        for (int i = 0; i < maxLen; i++) {
+          if (i < _movies.length) list.add(_movies[i]);
+          if (i < _series.length) list.add(_series[i]);
+        }
+        return list;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final catalogue = context.read<CatalogueService>();
+    final results = _filteredResults;
+    final totalCount = _movies.length + _series.length;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Search'),
-        automaticallyImplyLeading: false,
-      ),
-      body: Column(
-        children: [
-          Padding(
-            padding: CinemahubSpacing.pagePadding,
-            child: TextField(
-              controller: _controller,
-              textInputAction: TextInputAction.search,
-              onChanged: (v) {
-                setState(() => _query = v);
-                if (v.trim().isNotEmpty) {
-                  _performSearch(catalogue, v.trim());
-                } else {
-                  setState(() {
-                    _movies = [];
-                    _series = [];
-                    _loading = false;
-                  });
-                }
-              },
-              decoration: InputDecoration(
-                hintText: 'Movies, series, genres…',
-                prefixIcon: const Icon(Icons.search_rounded),
-                suffixIcon: _query.isEmpty
-                    ? null
-                    : IconButton(
-                        onPressed: () {
-                          _controller.clear();
-                          setState(() {
-                            _query = '';
-                            _movies = [];
-                            _series = [];
-                            _loading = false;
-                          });
-                        },
-                        icon: const Icon(Icons.close_rounded),
+      backgroundColor: CinemahubColors.background(Theme.of(context).brightness),
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Futuristic Search Bar Header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: CinemahubColors.primary.withValues(alpha: isDark ? 0.18 : 0.08),
+                      blurRadius: 18,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: TextField(
+                  controller: _controller,
+                  focusNode: _focusNode,
+                  textInputAction: TextInputAction.search,
+                  onChanged: (v) => _onSearchChanged(catalogue, v),
+                  style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black87,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'Search titles, genres, actors…',
+                    hintStyle: TextStyle(
+                      color: isDark ? Colors.white38 : Colors.black38,
+                      fontSize: 14,
+                    ),
+                    prefixIcon: const Icon(
+                      Icons.search_rounded,
+                      color: CinemahubColors.primary,
+                      size: 22,
+                    ),
+                    suffixIcon: _query.isNotEmpty
+                        ? IconButton(
+                            icon: Icon(
+                              Icons.close_rounded,
+                              color: isDark ? Colors.white60 : Colors.black54,
+                            ),
+                            onPressed: () {
+                              _controller.clear();
+                              _onSearchChanged(catalogue, '');
+                            },
+                          )
+                        : null,
+                    filled: true,
+                    fillColor: isDark
+                        ? const Color(0xFF141422)
+                        : Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide(
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.1)
+                            : Colors.black.withValues(alpha: 0.08),
+                        width: 1.2,
                       ),
-                filled: true,
-                border: OutlineInputBorder(
-                  borderRadius: CinemahubRadius.allPill,
-                  borderSide: BorderSide.none,
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: const BorderSide(
+                        color: CinemahubColors.primary,
+                        width: 1.8,
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
-          ),
-          if (_query.isNotEmpty) ...[
+
+            // Live Filter Bar (when there is a query)
+            if (_query.isNotEmpty && !_loading && totalCount > 0)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  child: Row(
+                    children: [
+                      _FilterTab(
+                        label: 'All ($totalCount)',
+                        isSelected: _selectedFilter == 0,
+                        onTap: () => setState(() => _selectedFilter = 0),
+                      ),
+                      const SizedBox(width: 8),
+                      _FilterTab(
+                        label: 'Movies (${_movies.length})',
+                        isSelected: _selectedFilter == 1,
+                        onTap: () => setState(() => _selectedFilter = 1),
+                      ),
+                      const SizedBox(width: 8),
+                      _FilterTab(
+                        label: 'TV Series (${_series.length})',
+                        isSelected: _selectedFilter == 2,
+                        onTap: () => setState(() => _selectedFilter = 2),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+            // Main Content Area (Smooth Vertical Scrollable)
             Expanded(
-              child: _buildSearchResults(catalogue),
-            ),
-          ] else ...[
-            const Expanded(
-              child: _EmptySearch(),
+              child: _buildBody(isDark, catalogue, results),
             ),
           ],
-        ],
+        ),
       ),
     );
   }
 
-  void _performSearch(CatalogueService catalogue, String query) {
-    setState(() => _loading = true);
-
-    catalogue.search(
-      query: query,
-      onMovies: (movies) {
-        if (!mounted) return;
-        setState(() {
-          _movies = movies;
-        });
-      },
-      onSeries: (series) {
-        if (!mounted) return;
-        setState(() {
-          _series = series;
-          _loading = false;
-        });
-      },
-    );
-  }
-
-  Widget _buildSearchResults(CatalogueService catalogue) {
+  Widget _buildBody(
+    bool isDark,
+    CatalogueService catalogue,
+    List<Map<String, dynamic>> results,
+  ) {
     if (_loading) {
-      return const LoadingState(message: 'Searching…');
-    }
-
-    final hasResults = _movies.isNotEmpty || _series.isNotEmpty;
-    if (!hasResults) {
-      return const EmptyState(
-        icon: Icons.search_off_rounded,
-        title: 'No results found',
-        message: 'Try a different search term.',
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 38,
+              height: 38,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.8,
+                color: CinemahubColors.primary,
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Scanning catalogue…',
+              style: TextStyle(
+                color: isDark ? Colors.white60 : Colors.black54,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
       );
     }
 
-    return ListView(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 16,
-        vertical: CinemahubSpacing.md,
+    if (_query.isEmpty) {
+      return _buildQuickPicks(isDark, catalogue);
+    }
+
+    if (results.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF161626) : Colors.grey.shade100,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.movie_filter_outlined,
+                  size: 48,
+                  color: isDark ? Colors.white30 : Colors.black26,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                'No titles found for "$_query"',
+                style: TextStyle(
+                  color: isDark ? Colors.white : Colors.black87,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Try searching by full title, franchise, or keyword.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: isDark ? Colors.white60 : Colors.black54,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // High Density 3-Column Poster Grid
+    return GridView.builder(
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 32),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        childAspectRatio: 0.58,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 12,
       ),
-      children: [
-        if (_movies.isNotEmpty) ...[
-          SectionHeader(
-            title: 'Movies (${_movies.length})',
-            trailing: null,
-          ),
-          const SizedBox(height: CinemahubSpacing.md),
-          _buildResultsGrid(_movies),
-          const SizedBox(height: CinemahubSpacing.lg),
-        ],
-        if (_series.isNotEmpty) ...[
-          SectionHeader(
-            title: 'TV Series (${_series.length})',
-            trailing: null,
-          ),
-          const SizedBox(height: CinemahubSpacing.md),
-          _buildResultsGrid(_series),
-        ],
-      ],
+      itemCount: results.length,
+      itemBuilder: (context, index) {
+        final item = results[index];
+        return _SearchPosterCard(item: item, isDark: isDark);
+      },
     );
   }
 
-  Widget _buildResultsGrid(List<Map<String, dynamic>> items) {
-    return SizedBox(
-      height: 280,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: items.length,
-        separatorBuilder: (_, _) =>
-            const SizedBox(width: 12),
-        itemBuilder: (context, i) {
-          final item = items[i];
-          return MovieCard(item: item);
-        },
+  Widget _buildQuickPicks(bool isDark, CatalogueService catalogue) {
+    return ListView(
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.bolt_rounded, color: CinemahubColors.gold, size: 20),
+            const SizedBox(width: 8),
+            Text(
+              'QUICK EXPLORE',
+              style: TextStyle(
+                color: isDark ? Colors.white70 : Colors.black54,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.2,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: _quickSearches.map((term) {
+            return InkWell(
+              borderRadius: BorderRadius.circular(20),
+              onTap: () {
+                _controller.text = term;
+                _onSearchChanged(catalogue, term);
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF161626) : Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.1)
+                        : Colors.black.withValues(alpha: 0.08),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.trending_up_rounded,
+                      size: 16,
+                      color: isDark ? Colors.white54 : Colors.black45,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      term,
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black87,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+}
+
+class _FilterTab extends StatelessWidget {
+  const _FilterTab({
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? CinemahubColors.primary
+              : (isDark ? const Color(0xFF181828) : Colors.grey.shade200),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? CinemahubColors.primary : Colors.transparent,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected
+                ? Colors.white
+                : (isDark ? Colors.white70 : Colors.black87),
+            fontSize: 12,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+          ),
+        ),
       ),
     );
   }
 }
 
-class _EmptySearch extends StatelessWidget {
-  const _EmptySearch();
+class _SearchPosterCard extends StatelessWidget {
+  const _SearchPosterCard({required this.item, required this.isDark});
+
+  final Map<String, dynamic> item;
+  final bool isDark;
 
   @override
   Widget build(BuildContext context) {
-    return const EmptyState(
-      icon: Icons.travel_explore_rounded,
-      title: 'Search CinemaHub',
-      message:
-          'Find movies and series by title. Metadata is '
-          'provided by TMDB and cached locally.',
+    final title = item['title'] as String? ?? 'Untitled';
+    final posterUrl = item['posterUrl'] as String? ?? '';
+    final rating = (item['rating'] as num?)?.toDouble() ?? 0.0;
+    final type = item['type'] as String? ?? 'movie';
+    final isMovie = type == 'movie';
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.pushNamed(
+          context,
+          '/details',
+          arguments: item,
+        );
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF141422) : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.08)
+                : Colors.black.withValues(alpha: 0.06),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.06),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              // Poster Image
+              posterUrl.isNotEmpty
+                  ? CachedNetworkImage(
+                      imageUrl: posterUrl,
+                      fit: BoxFit.cover,
+                      placeholder: (context, url) => Container(
+                        color: isDark ? const Color(0xFF1A1A2C) : Colors.grey.shade200,
+                        child: const Center(
+                          child: SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: CinemahubColors.primary,
+                            ),
+                          ),
+                        ),
+                      ),
+                      errorWidget: (context, url, error) => Container(
+                        color: isDark ? const Color(0xFF1A1A2C) : Colors.grey.shade200,
+                        child: const Icon(Icons.movie_rounded, color: Colors.grey),
+                      ),
+                    )
+                  : Container(
+                      color: isDark ? const Color(0xFF1A1A2C) : Colors.grey.shade200,
+                      child: const Icon(Icons.movie_rounded, color: Colors.grey),
+                    ),
+
+              // Gradient scrim overlay on bottom for text readability
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.transparent,
+                        Colors.black.withValues(alpha: 0.1),
+                        Colors.black.withValues(alpha: 0.85),
+                      ],
+                      stops: const [0.5, 0.75, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+
+              // Type Badge (Top-Left)
+              Positioned(
+                top: 6,
+                left: 6,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: (isMovie ? const Color(0xFF00B4D8) : const Color(0xFF9D4EDD))
+                        .withValues(alpha: 0.85),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    isMovie ? 'MOVIE' : 'SERIES',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 8,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+              ),
+
+              // Rating Badge (Top-Right)
+              if (rating > 0)
+                Positioned(
+                  top: 6,
+                  right: 6,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.75),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.star_rounded, size: 10, color: CinemahubColors.gold),
+                        const SizedBox(width: 2),
+                        Text(
+                          rating.toStringAsFixed(1),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+              // Title label on bottom
+              Positioned(
+                left: 6,
+                right: 6,
+                bottom: 8,
+                child: Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    height: 1.2,
+                    shadows: [
+                      Shadow(color: Colors.black, blurRadius: 6),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

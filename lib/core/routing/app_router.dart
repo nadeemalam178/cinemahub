@@ -8,6 +8,7 @@ import '../../features/shell/app_shell.dart';
 import '../../features/details/content_detail_screen.dart';
 import '../../features/search/search_screen.dart';
 import '../../features/admin/admin_dashboard.dart';
+import '../../features/settings/playback_diagnostics_screen.dart';
 
 /// Maps [AuthState] and route names to views for the app shell.
 class AppRouter {
@@ -16,6 +17,10 @@ class AppRouter {
   final AuthService _auth;
 
   Route<dynamic>? onGenerateRoute(RouteSettings settings, AuthState authState) {
+    if (settings.name == '/diagnostics') {
+      return _slide(const PlaybackDiagnosticsScreen());
+    }
+
     // If user is not approved, always restrict navigation to the appropriate auth view
     if (authState != AuthState.approved) {
       return _routeForAuthState(authState);
@@ -68,7 +73,9 @@ class AppRouter {
     }
   }
 
-  void _onSplashFinished() {}
+  void _onSplashFinished() {
+    _auth.onSplashFinished();
+  }
 
   Route<T> _fade<T>(Widget page) => PageRouteBuilder<T>(
     transitionDuration: const Duration(milliseconds: 600),

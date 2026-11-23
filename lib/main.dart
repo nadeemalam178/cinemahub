@@ -5,6 +5,7 @@ import 'package:firebase_core/firebase_core.dart';
 
 import 'core/routing/app_router.dart';
 import 'core/theme/theme_provider.dart';
+import 'core/notifications/notification_service.dart';
 import 'core/network/connectivity_provider.dart';
 import 'core/auth/auth_service.dart';
 import 'core/auth/firebase_options.dart';
@@ -26,7 +27,9 @@ void main() async {
   bool firebaseConfigured = false;
   if (!kIsWeb) {
     try {
-      if (DefaultFirebaseOptions.isConfigured) {
+      if (Firebase.apps.isNotEmpty) {
+        firebaseConfigured = true;
+      } else if (DefaultFirebaseOptions.isConfigured) {
         await Firebase.initializeApp(
           options: DefaultFirebaseOptions.currentPlatform,
         );
@@ -38,11 +41,17 @@ void main() async {
       }
     } catch (e) {
       debugPrint('Firebase initialization note: $e');
-      firebaseConfigured = false;
+      if (e.toString().contains('duplicate-app')) {
+        firebaseConfigured = true;
+      } else {
+        firebaseConfigured = false;
+      }
     }
   } else {
     try {
-      if (DefaultFirebaseOptions.isConfigured) {
+      if (Firebase.apps.isNotEmpty) {
+        firebaseConfigured = true;
+      } else if (DefaultFirebaseOptions.isConfigured) {
         await Firebase.initializeApp(
           options: DefaultFirebaseOptions.currentPlatform,
         );
@@ -50,7 +59,11 @@ void main() async {
       }
     } catch (e) {
       debugPrint('Firebase web initialization note: $e');
-      firebaseConfigured = false;
+      if (e.toString().contains('duplicate-app')) {
+        firebaseConfigured = true;
+      } else {
+        firebaseConfigured = false;
+      }
     }
   }
 
@@ -79,6 +92,7 @@ void main() async {
   final updateService = UpdateService();
 
   authProvider.initialize(firebaseConfigured: firebaseConfigured);
+  NotificationService.instance.initialize();
 
   runApp(
     MultiProvider(
@@ -94,10 +108,11 @@ void main() async {
         ),
         ChangeNotifierProvider<AdminService>.value(value: adminService),
         ChangeNotifierProvider<ProviderRegistry>.value(value: registry),
-        ChangeNotifierProvider.value(value: playbackEngine),
-        Provider<UpdateService>.value(value: updateService),
+        ChangeNotifierProvider<PlaybackEngine>.value(value: playbackEngine),
+        ChangeNotifierProvider<UpdateService>.value(value: updateService),
         Provider<StremioAdapter>.value(value: adapter),
         Provider<TmdbService>.value(value: tmdbService),
+        Provider<NotificationService>.value(value: NotificationService.instance),
       ],
       child: CinemaHubApp(
         themeProvider: themeProvider,

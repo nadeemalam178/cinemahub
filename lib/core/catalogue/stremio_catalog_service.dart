@@ -68,36 +68,8 @@ class StremioAddonCatalog {
       'label': '🌟 Featured Series',
       'source': 'Cinemeta',
     },
-    // --- Kitsu anime ---
-    {
-      'base': _kitsu,
-      'type': 'anime',
-      'id': 'kitsu-anime-trending',
-      'label': '🔥 Trending Anime',
-      'source': 'Kitsu',
-    },
-    {
-      'base': _kitsu,
-      'type': 'anime',
-      'id': 'kitsu-anime-top-rated',
-      'label': '🏆 Top Rated Anime',
-      'source': 'Kitsu',
-    },
-    {
-      'base': _kitsu,
-      'type': 'anime',
-      'id': 'kitsu-anime-upcoming',
-      'label': '📅 Upcoming Anime',
-      'source': 'Kitsu',
-    },
-    // --- Community / RPDB ---
-    {
-      'base': _rpdb,
-      'type': 'movie',
-      'id': 'rpdb-top-movies',
-      'label': '🎯 Community Top Picks',
-      'source': 'Community',
-    },
+    // --- Kitsu anime (Disabled due to dead domain) ---
+    // --- Community / RPDB (Disabled due to 404 domain) ---
   ];
 
   // ---------------------------------------------------------------------------

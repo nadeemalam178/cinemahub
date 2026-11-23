@@ -29,7 +29,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Future<void> _loadWatchHistory() async {
     setState(() => _loading = true);
     try {
-      final history = await _syncService.getWatchHistory();
+      final history = await _syncService.getWatchlist();
       if (mounted) {
         setState(() {
           _watchHistory = history;

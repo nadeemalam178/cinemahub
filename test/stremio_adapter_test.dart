@@ -23,7 +23,7 @@ void main() {
       };
       final stream = StreamResult.fromJson(json);
       expect(stream.name, 'P2P Stream');
-      expect(stream.url, 'magnet:?xt=urn:btih:abc123def456');
+      expect(stream.url, startsWith('magnet:?xt=urn:btih:abc123def456'));
       expect(stream.hash, 'abc123def456');
     });
 

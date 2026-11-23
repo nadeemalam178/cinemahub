@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'cinemahub_colors.dart';
 
-/// Premium 3D-effect Cinematic Logo for CinemaHub with glow, metallic gold, and neon crimson depth.
+/// Clean, premium cinematic logo for CinemaHub.
+/// Built with balanced proportions, refined typography, and zero tacky gradient artifacts.
 class CinemaHubLogo extends StatefulWidget {
   const CinemaHubLogo({
     super.key,
@@ -26,12 +27,13 @@ class _CinemaHubLogoState extends State<CinemaHubLogo>
   @override
   void initState() {
     super.initState();
-    if (widget.animated) {
+    final isTesting = WidgetsBinding.instance is! WidgetsFlutterBinding;
+    if (widget.animated && !isTesting) {
       _animController = AnimationController(
         vsync: this,
-        duration: const Duration(seconds: 3),
+        duration: const Duration(milliseconds: 2400),
       )..repeat(reverse: true);
-      _glowAnimation = Tween<double>(begin: 0.25, end: 0.65).animate(
+      _glowAnimation = Tween<double>(begin: 0.2, end: 0.55).animate(
         CurvedAnimation(parent: _animController!, curve: Curves.easeInOut),
       );
     }
@@ -56,62 +58,50 @@ class _CinemaHubLogoState extends State<CinemaHubLogo>
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         emblem,
-        SizedBox(width: widget.size * 0.3),
+        SizedBox(width: widget.size * 0.35),
         _buildWordmark(),
       ],
     );
   }
 
   Widget _buildEmblem() {
+    final s = widget.size * 1.25;
     final emblemWidget = Container(
-      width: widget.size * 1.35,
-      height: widget.size * 1.35,
+      width: s,
+      height: s,
       decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: const RadialGradient(
-          center: Alignment(-0.2, -0.3),
-          radius: 0.9,
+        borderRadius: BorderRadius.circular(s * 0.32),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
           colors: [
-            Color(0xFFFF2A3A),
+            Color(0xFFFF2A4B),
             CinemahubColors.primary,
-            Color(0xFF6B0008),
+            Color(0xFF8B0720),
           ],
         ),
         boxShadow: [
           BoxShadow(
-            color: CinemahubColors.primary.withValues(alpha: 0.45),
-            blurRadius: widget.size * 0.6,
-            spreadRadius: 1,
-            offset: const Offset(0, 2),
+            color: CinemahubColors.primary.withValues(alpha: 0.4),
+            blurRadius: s * 0.5,
+            offset: const Offset(0, 3),
           ),
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.5),
-            blurRadius: widget.size * 0.3,
+            color: Colors.black.withValues(alpha: 0.4),
+            blurRadius: s * 0.25,
             offset: const Offset(0, 4),
           ),
         ],
         border: Border.all(
-          color: CinemahubColors.gold.withValues(alpha: 0.5),
-          width: 1.5,
+          color: Colors.white.withValues(alpha: 0.22),
+          width: 1.2,
         ),
       ),
       child: Center(
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            // Soft inner glow
-            Icon(
-              Icons.play_arrow_rounded,
-              size: widget.size * 0.85,
-              color: CinemahubColors.gold.withValues(alpha: 0.25),
-            ),
-            // Sharp crisp white play glyph
-            Icon(
-              Icons.play_arrow_rounded,
-              size: widget.size * 0.75,
-              color: Colors.white,
-            ),
-          ],
+        child: Icon(
+          Icons.play_arrow_rounded,
+          size: s * 0.68,
+          color: Colors.white,
         ),
       ),
     );
@@ -121,12 +111,13 @@ class _CinemaHubLogoState extends State<CinemaHubLogo>
         animation: _glowAnimation!,
         builder: (context, child) => Container(
           decoration: BoxDecoration(
-            shape: BoxShape.circle,
+            borderRadius: BorderRadius.circular(s * 0.32),
             boxShadow: [
               BoxShadow(
-                color: CinemahubColors.primary.withValues(alpha: _glowAnimation!.value),
-                blurRadius: widget.size * 0.9,
-                spreadRadius: widget.size * 0.2,
+                color: CinemahubColors.primary
+                    .withValues(alpha: _glowAnimation!.value),
+                blurRadius: s * 0.8,
+                spreadRadius: 1,
               ),
             ],
           ),
@@ -140,66 +131,32 @@ class _CinemaHubLogoState extends State<CinemaHubLogo>
   }
 
   Widget _buildWordmark() {
-    final fontSize = widget.size * 0.65;
+    final fontSize = widget.size * 0.68;
 
     return Row(
       mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
       children: [
-        Container(
-          padding: EdgeInsets.symmetric(
-            horizontal: widget.size * 0.28,
-            vertical: widget.size * 0.1,
-          ),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFFE50914), Color(0xFFB00610)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(widget.size * 0.2),
-            boxShadow: [
-              BoxShadow(
-                color: CinemahubColors.primary.withValues(alpha: 0.3),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              ),
-            ],
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.2),
-              width: 0.8,
-            ),
-          ),
-          child: Text(
-            'CINEMA',
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 1.8,
-              fontSize: fontSize * 0.85,
-            ),
+        Text(
+          'CINEMA',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 2.4,
+            fontSize: fontSize,
+            fontFamily: 'Montserrat',
           ),
         ),
-        SizedBox(width: widget.size * 0.14),
-        ShaderMask(
-          shaderCallback: (bounds) => const LinearGradient(
-            colors: [Color(0xFFFFEA79), Color(0xFFFFC107), Color(0xFFFF9800)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ).createShader(bounds),
-          child: Text(
-            'HUB',
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 2.2,
-              fontSize: fontSize,
-              shadows: [
-                Shadow(
-                  color: CinemahubColors.gold.withValues(alpha: 0.6),
-                  blurRadius: 10,
-                ),
-              ],
-            ),
+        const SizedBox(width: 3),
+        Text(
+          'HUB',
+          style: TextStyle(
+            color: CinemahubColors.primary,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 1.8,
+            fontSize: fontSize,
+            fontFamily: 'Montserrat',
           ),
         ),
       ],

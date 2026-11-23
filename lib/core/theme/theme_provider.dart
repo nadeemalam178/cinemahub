@@ -8,8 +8,25 @@ import 'cinemahub_tokens.dart';
 enum AppThemeMode { system, dark, light }
 
 /// Manages theme selection and persists it across launches.
-class ThemeProvider extends ChangeNotifier {
+class ThemeProvider extends ChangeNotifier with WidgetsBindingObserver {
   static const _key = 'cinemahub.theme_mode';
+
+  ThemeProvider() {
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangePlatformBrightness() {
+    if (_mode == AppThemeMode.system) {
+      notifyListeners();
+    }
+  }
 
   AppThemeMode _mode = AppThemeMode.system;
   AppThemeMode get mode => _mode;
@@ -103,11 +120,21 @@ class ThemeProvider extends ChangeNotifier {
       ),
       appBarTheme: AppBarTheme(
         backgroundColor: CinemahubColors.background(brightness),
+        foregroundColor: CinemahubColors.onBackground(brightness),
         elevation: CinemahubElevation.none,
         centerTitle: false,
+        iconTheme: IconThemeData(
+          color: CinemahubColors.onBackground(brightness),
+        ),
+        actionsIconTheme: IconThemeData(
+          color: CinemahubColors.onBackground(brightness),
+        ),
         titleTextStyle: CinemahubTypography.textTheme(
           brightness,
-        ).titleLarge,
+        ).titleLarge?.copyWith(
+          color: CinemahubColors.onBackground(brightness),
+          fontWeight: FontWeight.bold,
+        ),
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: CinemahubColors.surface(brightness).withValues(
@@ -116,6 +143,16 @@ class ThemeProvider extends ChangeNotifier {
         indicatorColor: CinemahubColors.primary.withValues(alpha: 0.18),
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
         height: 72,
+        iconTheme: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return const IconThemeData(color: CinemahubColors.primary);
+          }
+          return IconThemeData(color: CinemahubColors.muted(brightness));
+        }),
+      ),
+      popupMenuTheme: PopupMenuThemeData(
+        color: CinemahubColors.surfaceElevated(brightness),
+        textStyle: TextStyle(color: CinemahubColors.onBackground(brightness)),
       ),
       dividerTheme: DividerThemeData(
         color: CinemahubColors.muted(brightness).withValues(alpha: 0.12),

@@ -10,6 +10,7 @@ import '../providers/provider_model.dart';
 import '../providers/provider_registry.dart';
 import '../providers/stremio_adapter.dart';
 import '../providers/stremio_torrent_scraper.dart';
+import '../streaming/diagnostics/streaming_logger.dart';
 
 /// Multi-provider playback engine: FMHY 28+ Servers + Stremio Addons + Nuvio Plugins + CloudStream.
 class PlaybackEngine extends ChangeNotifier {
@@ -119,7 +120,7 @@ class PlaybackEngine extends ChangeNotifier {
 
     // 2. Fetch all 4 categories in parallel
     await Future.wait([
-      // Category 1: FMHY Video Servers (28+ verified embeds)
+      // Category 1: FMHY Video Servers (Verified Embeds)
       Future(() {
         try {
           final fmhy = _fmhyEngine.resolveAllStreams(
@@ -130,8 +131,18 @@ class PlaybackEngine extends ChangeNotifier {
             episode: episode,
           );
           allStreams.addAll(fmhy);
+          StreamingLogger.instance.log(
+            stage: 'FmhyResolution',
+            message: 'Resolved ${fmhy.length} verified FMHY embed server(s)',
+            provider: 'FMHY',
+          );
         } catch (e) {
-          debugPrint('FMHY resolution error: $e');
+          StreamingLogger.instance.log(
+            stage: 'FmhyResolution',
+            message: 'FMHY resolution error: $e',
+            provider: 'FMHY',
+            severity: LogSeverity.warning,
+          );
         }
       }),
 
@@ -149,8 +160,22 @@ class PlaybackEngine extends ChangeNotifier {
             );
             allStreams.addAll(torrents);
           } catch (e) {
-            debugPrint('Stremio Addon scraper error: $e');
+            StreamingLogger.instance.logStreamRequest(
+              'StremioScraper',
+              cleanImdb,
+              statusCode: 0,
+              streamCount: 0,
+              error: e.toString(),
+            );
           }
+        } else {
+          StreamingLogger.instance.logStreamRequest(
+            'PlaybackEngine',
+            'stremio_resolve',
+            statusCode: 404,
+            streamCount: 0,
+            error: 'No IMDb ID resolved for content "$id" (${title ?? 'untitled'}); Stremio querying skipped.',
+          );
         }
       }),
 

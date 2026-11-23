@@ -38,25 +38,25 @@ class CinemahubColors {
   // Dark scheme
   // ---------------------------------------------------------------------------
 
-  static const Color darkBackground = Color(0xFF0B0B12);
-  static const Color darkSurface = Color(0xFF14141F);
-  static const Color darkSurfaceElevated = Color(0xFF1D1D2B);
-  static const Color darkSurfaceHigh = Color(0xFF26263A);
+  static const Color darkBackground = Color(0xFF08080E);
+  static const Color darkSurface = Color(0xFF12121C);
+  static const Color darkSurfaceElevated = Color(0xFF1A1A28);
+  static const Color darkSurfaceHigh = Color(0xFF242436);
   static const Color darkScrim = Color(0xCC000000);
-  static const Color onDark = Color(0xFFF5F5F8);
-  static const Color onDarkMuted = Color(0xFF9A9AB0);
+  static const Color onDark = Color(0xFFF5F5FA);
+  static const Color onDarkMuted = Color(0xFF9090A8);
 
   // ---------------------------------------------------------------------------
   // Light scheme
   // ---------------------------------------------------------------------------
 
-  static const Color lightBackground = Color(0xFFF7F7FB);
+  static const Color lightBackground = Color(0xFFF6F7FB);
   static const Color lightSurface = Color(0xFFFFFFFF);
-  static const Color lightSurfaceElevated = Color(0xFFFFFFFF);
-  static const Color lightSurfaceHigh = Color(0xFFECECF4);
-  static const Color lightScrim = Color(0x99000000);
-  static const Color onLight = Color(0xFF10101A);
-  static const Color onLightMuted = Color(0xFF5B5B6E);
+  static const Color lightSurfaceElevated = Color(0xFFFBFBFE);
+  static const Color lightSurfaceHigh = Color(0xFFECEEF6);
+  static const Color lightScrim = Color(0x66000000);
+  static const Color onLight = Color(0xFF0D0E15);
+  static const Color onLightMuted = Color(0xFF5E6072);
 
   // ---------------------------------------------------------------------------
   // Gradient helpers

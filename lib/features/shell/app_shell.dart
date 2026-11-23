@@ -2,14 +2,12 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/auth/auth_service.dart';
 import '../../core/update/update_service.dart';
 import '../../core/theme/cinemahub_colors.dart';
 import '../home/home_screen.dart';
 import '../search/search_screen.dart';
 import '../library/library_screen.dart';
 import '../settings/settings_screen.dart';
-import '../admin/admin_dashboard.dart';
 
 /// Root shell: Frosted glass bottom navigation across the main destinations.
 class AppShell extends StatefulWidget {
@@ -46,45 +44,36 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final auth = context.watch<AuthService>();
-    final isAdmin = auth.isAdmin;
 
-    // Build tabs based on admin status
-    final destinations = <NavigationDestination>[
-      const NavigationDestination(
+    // The 4 core destinations. Admin Dashboard is cleanly housed inside Settings.
+    const destinations = <NavigationDestination>[
+      NavigationDestination(
         icon: Icon(Icons.home_outlined),
         selectedIcon: Icon(Icons.home_rounded),
         label: 'Home',
       ),
-      const NavigationDestination(
+      NavigationDestination(
         icon: Icon(Icons.search_outlined),
         selectedIcon: Icon(Icons.search_rounded),
         label: 'Search',
       ),
-      const NavigationDestination(
+      NavigationDestination(
         icon: Icon(Icons.bookmark_outline_rounded),
         selectedIcon: Icon(Icons.bookmark_rounded),
         label: 'My List',
       ),
-      if (isAdmin)
-        const NavigationDestination(
-          icon: Icon(Icons.admin_panel_settings_outlined),
-          selectedIcon: Icon(Icons.admin_panel_settings_rounded),
-          label: 'Admin',
-        ),
-      const NavigationDestination(
+      NavigationDestination(
         icon: Icon(Icons.person_outline_rounded),
         selectedIcon: Icon(Icons.person_rounded),
         label: 'Settings',
       ),
     ];
 
-    final List<Widget> pages = [
-      const HomeScreen(),
-      const SearchScreen(),
-      const LibraryScreen(),
-      if (isAdmin) const AdminDashboard(),
-      const SettingsScreen(),
+    const List<Widget> pages = [
+      HomeScreen(),
+      SearchScreen(),
+      LibraryScreen(),
+      SettingsScreen(),
     ];
 
     final currentIndex = _index.clamp(0, pages.length - 1);

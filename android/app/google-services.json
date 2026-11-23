@@ -12,7 +12,20 @@
           "package_name": "com.cinemahub.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "222608500817-lcpmj4tet291csaj8vcht2bcpmlde7ba.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.cinemahub.app",
+            "certificate_hash": "833e3d7b7ab08476d659a4dfdb61a5ed983dd502"
+          }
+        },
+        {
+          "client_id": "222608500817-2n8h32n8j5l6c1ivgrj1a9lcd378htsj.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyDY0ESUF9ZIEPCgDoue5qeuMfLbxYcdHnE"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "222608500817-2n8h32n8j5l6c1ivgrj1a9lcd378htsj.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

@@ -1,18 +1,20 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/auth/auth_service.dart';
 import '../../core/admin/admin_service.dart';
 import '../../core/update/update_service.dart';
+import '../../core/notifications/notification_service.dart';
 import '../../core/theme/cinemahub_colors.dart';
 import '../../core/theme/cinemahub_tokens.dart';
 import '../../core/theme/glass.dart';
 import '../../core/theme/theme_provider.dart';
 import '../../features/admin/admin_dashboard.dart';
+import 'playback_diagnostics_screen.dart';
 
-/// Settings: theme, account, Real-Debrid & Stremio Addons, about, and in-app OTA updates.
+/// Settings: theme switching, notifications, administration, and OTA updates.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -23,13 +25,12 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   String _version = '...';
   bool _checkingUpdates = false;
-  String _realDebridKey = '';
+  bool _sendingTestNotif = false;
 
   @override
   void initState() {
     super.initState();
     _loadVersion();
-    _loadDebridKey();
   }
 
   Future<void> _loadVersion() async {
@@ -43,99 +44,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (_) {
       if (mounted) {
         setState(() {
-          _version = 'v1.4.0';
+          _version = 'v1.5.1';
         });
       }
     }
-  }
-
-  Future<void> _loadDebridKey() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (mounted) {
-      setState(() {
-        _realDebridKey = prefs.getString('real_debrid_key') ?? '';
-      });
-    }
-  }
-
-  Future<void> _saveDebridKey(String key) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('real_debrid_key', key.trim());
-    if (mounted) {
-      setState(() {
-        _realDebridKey = key.trim();
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Real-Debrid API Key saved!')),
-      );
-    }
-  }
-
-  void _showDebridDialog() {
-    final textController = TextEditingController(text: _realDebridKey);
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: CinemahubColors.darkSurface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Row(
-          children: [
-            Icon(Icons.bolt_rounded, color: CinemahubColors.gold),
-            SizedBox(width: 8),
-            Text('Real-Debrid Setup', style: TextStyle(color: Colors.white, fontSize: 18)),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Enter your Real-Debrid API token to unlock instant 4K high-speed direct streaming with ZERO ads and zero buffering.',
-              style: TextStyle(color: Colors.white70, fontSize: 13),
-            ),
-            const SizedBox(height: 14),
-            TextField(
-              controller: textController,
-              style: const TextStyle(color: Colors.white, fontSize: 14),
-              decoration: InputDecoration(
-                hintText: 'Enter RD API token...',
-                hintStyle: const TextStyle(color: Colors.white38),
-                filled: true,
-                fillColor: Colors.black38,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Get token at: real-debrid.com/apitoken',
-              style: TextStyle(color: Colors.white38, fontSize: 11),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white60)),
-          ),
-          if (_realDebridKey.isNotEmpty)
-            TextButton(
-              onPressed: () {
-                _saveDebridKey('');
-                Navigator.pop(ctx);
-              },
-              child: const Text('Clear', style: TextStyle(color: Colors.redAccent)),
-            ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: CinemahubColors.primary),
-            onPressed: () {
-              _saveDebridKey(textController.text);
-              Navigator.pop(ctx);
-            },
-            child: const Text('Save Token'),
-          ),
-        ],
-      ),
-    );
   }
 
   Future<void> _checkForUpdates() async {
@@ -180,24 +92,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _triggerTestNotification() async {
+    setState(() => _sendingTestNotif = true);
+    try {
+      await NotificationService.instance.sendTestNotification();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Notification fired! Check your notification tray.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Notification error: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sendingTestNotif = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final theme = context.watch<ThemeProvider>();
     final auth = context.watch<AuthService>();
     final admin = context.watch<AdminService>();
 
-    final hasDebrid = _realDebridKey.isNotEmpty;
+    final user = auth.user;
+    final displayName = (user?.displayName != null && user!.displayName!.trim().isNotEmpty)
+        ? user.displayName!.trim()
+        : (user?.email != null && user!.email!.isNotEmpty ? user.email! : 'Approved Member');
+
+    final userInitial = displayName.isNotEmpty ? displayName[0].toUpperCase() : 'C';
 
     return Scaffold(
+      backgroundColor: CinemahubColors.background(Theme.of(context).brightness),
       appBar: AppBar(
-        title: const Text('Settings & Profile', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text('Settings', style: TextStyle(fontWeight: FontWeight.bold)),
         elevation: 0,
       ),
       body: ListView(
         padding: CinemahubSpacing.pagePadding,
         physics: const BouncingScrollPhysics(),
         children: [
-          // Account Profile Card
+          // Account Profile Card (Displays User Display Name)
           GlassCard(
             accentColor: CinemahubColors.primary,
             child: Row(
@@ -207,7 +152,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   height: 52,
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
-                      colors: [CinemahubColors.primary, Color(0xFF8B0000)],
+                      colors: [CinemahubColors.primary, Color(0xFF8F0F35)],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
@@ -221,10 +166,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   child: Center(
                     child: Text(
-                      (auth.user?.email != null && auth.user!.email!.isNotEmpty)
-                          ? auth.user!.email![0].toUpperCase()
-                          : 'C',
-                      style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                      userInitial,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ),
@@ -234,28 +181,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        auth.user?.email ?? 'Signed in User',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        displayName,
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black87,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
                       ),
-                      const SizedBox(height: 2),
+                      if (user?.email != null && user?.displayName != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          user!.email!,
+                          style: TextStyle(
+                            color: isDark ? Colors.white60 : Colors.black54,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 4),
                       Row(
                         children: [
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                             decoration: BoxDecoration(
                               color: (auth.isAdmin || admin.isAdmin)
-                                  ? CinemahubColors.primary.withValues(alpha: 0.2)
-                                  : Colors.green.withValues(alpha: 0.2),
+                                  ? CinemahubColors.primary.withValues(alpha: 0.15)
+                                  : Colors.green.withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
-                              (auth.isAdmin || admin.isAdmin) ? '👑 Owner / Admin' : '✨ Approved Member',
+                              (auth.isAdmin || admin.isAdmin)
+                                  ? 'OWNER / ADMIN'
+                                  : 'ACTIVE MEMBER',
                               style: TextStyle(
                                 color: (auth.isAdmin || admin.isAdmin)
                                     ? CinemahubColors.primary
-                                    : Colors.greenAccent,
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
+                                    : (isDark ? Colors.greenAccent : Colors.green.shade800),
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.5,
                               ),
                             ),
                           ),
@@ -266,7 +230,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 IconButton(
                   tooltip: 'Sign Out',
-                  icon: const Icon(Icons.logout_rounded, color: Colors.white60),
+                  icon: Icon(
+                    Icons.logout_rounded,
+                    color: isDark ? Colors.white60 : Colors.black45,
+                  ),
                   onPressed: () => auth.signOut(),
                 ),
               ],
@@ -274,103 +241,160 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 12),
 
-          // Streaming & Debrid Configuration
-          _SectionTitle('Streaming & Debrid'),
+          // Appearance Section
+          _SectionTitle('Theme & Display', isDark: isDark),
           GlassCard(
-            onTap: _showDebridDialog,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(9),
+                      decoration: BoxDecoration(
+                        color: Colors.blueAccent.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(Icons.palette_outlined, color: Colors.blueAccent, size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Appearance Mode',
+                            style: TextStyle(
+                              color: isDark ? Colors.white : Colors.black87,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                            ),
+                          ),
+                          Text(
+                            switch (theme.mode) {
+                              AppThemeMode.system => 'Auto: Follows Android system theme',
+                              AppThemeMode.dark => 'Fixed: Deep cinematic obsidian',
+                              AppThemeMode.light => 'Fixed: Pure platinum daylight',
+                            },
+                            style: TextStyle(
+                              color: isDark ? Colors.white60 : Colors.black54,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF101018) : Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.08)
+                          : Colors.black.withValues(alpha: 0.06),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      _ThemeSegment(
+                        label: 'Auto (System)',
+                        icon: Icons.brightness_auto_rounded,
+                        isSelected: theme.mode == AppThemeMode.system,
+                        onTap: () => theme.setMode(AppThemeMode.system),
+                      ),
+                      _ThemeSegment(
+                        label: 'Dark',
+                        icon: Icons.dark_mode_rounded,
+                        isSelected: theme.mode == AppThemeMode.dark,
+                        onTap: () => theme.setMode(AppThemeMode.dark),
+                      ),
+                      _ThemeSegment(
+                        label: 'Light',
+                        icon: Icons.light_mode_rounded,
+                        isSelected: theme.mode == AppThemeMode.light,
+                        onTap: () => theme.setMode(AppThemeMode.light),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // Push Notifications Section
+          _SectionTitle('Alerts & Notifications', isDark: isDark),
+          GlassCard(
+            onTap: _sendingTestNotif ? null : _triggerTestNotification,
             child: Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(10),
+                  padding: const EdgeInsets.all(9),
                   decoration: BoxDecoration(
-                    color: CinemahubColors.gold.withValues(alpha: 0.15),
+                    color: Colors.amber.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Icon(Icons.bolt_rounded, color: CinemahubColors.gold, size: 24),
+                  child: const Icon(Icons.notifications_active_outlined, color: Colors.amber, size: 22),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Real-Debrid Account',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                      Text(
+                        'Push Notifications',
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black87,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
                       ),
                       Text(
-                        hasDebrid ? 'Active • Direct 4K Zero-Ad CDN' : 'Connect for 4K instant playback',
+                        'FCM & local heads-up alerts active',
                         style: TextStyle(
-                          color: hasDebrid ? Colors.greenAccent : Colors.white60,
+                          color: isDark ? Colors.white60 : Colors.black54,
                           fontSize: 12,
                         ),
                       ),
                     ],
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: hasDebrid ? Colors.green.withValues(alpha: 0.2) : Colors.white10,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    hasDebrid ? 'CONNECTED' : 'SETUP',
-                    style: TextStyle(
-                      color: hasDebrid ? Colors.greenAccent : Colors.white60,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
+                OutlinedButton(
+                  onPressed: _sendingTestNotif ? null : _triggerTestNotification,
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    side: BorderSide(
+                      color: isDark ? Colors.white24 : Colors.black26,
                     ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   ),
+                  child: _sendingTestNotif
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text(
+                          'Test Alert',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: isDark ? Colors.white : Colors.black87,
+                          ),
+                        ),
                 ),
               ],
             ),
           ),
-
-          // Appearance Settings
           const SizedBox(height: 8),
-          _SectionTitle('Appearance & Display'),
-          GlassCard(
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.blueAccent.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(Icons.palette_outlined, color: Colors.blueAccent, size: 24),
-                ),
-                const SizedBox(width: 14),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('App Theme', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                      Text('System default, Dark or Light mode', style: TextStyle(color: Colors.white60, fontSize: 12)),
-                    ],
-                  ),
-                ),
-                DropdownButton<AppThemeMode>(
-                  value: theme.mode,
-                  dropdownColor: CinemahubColors.darkSurface,
-                  underline: const SizedBox.shrink(),
-                  items: const [
-                    DropdownMenuItem(value: AppThemeMode.system, child: Text('System')),
-                    DropdownMenuItem(value: AppThemeMode.dark, child: Text('Dark')),
-                    DropdownMenuItem(value: AppThemeMode.light, child: Text('Light')),
-                  ],
-                  onChanged: (mode) {
-                    if (mode != null) theme.setMode(mode);
-                  },
-                ),
-              ],
-            ),
-          ),
 
-          // Admin Dashboard (Clean: Only shown if user has admin privileges)
+          // Admin Dashboard (Exclusively shown if user has admin privileges)
           if (auth.isAdmin || admin.isAdmin) ...[
-            const SizedBox(height: 8),
-            _SectionTitle('Administration'),
+            _SectionTitle('Administration', isDark: isDark),
             GlassCard(
               accentColor: Colors.deepPurpleAccent,
               onTap: () {
@@ -382,53 +406,147 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(10),
+                    padding: const EdgeInsets.all(9),
                     decoration: BoxDecoration(
                       color: Colors.deepPurpleAccent.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Icon(Icons.admin_panel_settings_rounded, color: Colors.purpleAccent, size: 24),
+                    child: const Icon(
+                      Icons.admin_panel_settings_rounded,
+                      color: Colors.purpleAccent,
+                      size: 22,
+                    ),
                   ),
                   const SizedBox(width: 14),
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Admin Dashboard', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                        Text('Manage friend approvals and users', style: TextStyle(color: Colors.white60, fontSize: 12)),
+                        Text(
+                          'Admin Dashboard',
+                          style: TextStyle(
+                            color: isDark ? Colors.white : Colors.black87,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                        ),
+                        Text(
+                          'Manage user approvals and platform settings',
+                          style: TextStyle(
+                            color: isDark ? Colors.white60 : Colors.black54,
+                            fontSize: 12,
+                          ),
+                        ),
                       ],
                     ),
                   ),
-                  const Icon(Icons.chevron_right_rounded, color: Colors.white60),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: isDark ? Colors.white60 : Colors.black45,
+                  ),
                 ],
               ),
             ),
+            const SizedBox(height: 8),
           ],
 
-          // Updates & About Section
-          const SizedBox(height: 8),
-          _SectionTitle('About & Updates'),
+          // Playback Engine Diagnostics (Exclusively for Admins/Owners or in Debug Mode)
+          if (auth.isAdmin || admin.isAdmin || kDebugMode) ...[
+            _SectionTitle('Diagnostics', isDark: isDark),
+            GlassCard(
+              accentColor: Colors.tealAccent,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const PlaybackDiagnosticsScreen()),
+                );
+              },
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(9),
+                    decoration: BoxDecoration(
+                      color: Colors.tealAccent.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.speed_rounded,
+                      color: Colors.tealAccent,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Playback Engine Diagnostics',
+                          style: TextStyle(
+                            color: isDark ? Colors.white : Colors.black87,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                        ),
+                        Text(
+                          'Test MP4, HLS, DASH, Embed, Magnet & Error routing',
+                          style: TextStyle(
+                            color: isDark ? Colors.white60 : Colors.black54,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: isDark ? Colors.white60 : Colors.black45,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+
+          // Updates & Version Section
+          _SectionTitle('About & Updates', isDark: isDark),
           GlassCard(
             onTap: _checkingUpdates ? null : _checkForUpdates,
             child: Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(10),
+                  padding: const EdgeInsets.all(9),
                   decoration: BoxDecoration(
                     color: CinemahubColors.primary.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Icon(Icons.system_update_rounded, color: CinemahubColors.primary, size: 24),
+                  child: const Icon(
+                    Icons.system_update_rounded,
+                    color: CinemahubColors.primary,
+                    size: 22,
+                  ),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Check for Updates (OTA)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                       Text(
-                        _checkingUpdates ? 'Connecting to GitHub releases...' : 'Current Version: $_version',
-                        style: const TextStyle(color: Colors.white60, fontSize: 12),
+                        'Check for Updates (OTA)',
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black87,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                      ),
+                      Text(
+                        _checkingUpdates
+                            ? 'Connecting to GitHub releases…'
+                            : 'Current Version: $_version',
+                        style: TextStyle(
+                          color: isDark ? Colors.white60 : Colors.black54,
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),
@@ -451,9 +569,76 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
+class _ThemeSegment extends StatelessWidget {
+  const _ThemeSegment({
+    required this.label,
+    required this.icon,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? CinemahubColors.primary
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: CinemahubColors.primary.withValues(alpha: 0.35),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: 15,
+                color: isSelected
+                    ? Colors.white
+                    : (isDark ? Colors.white60 : Colors.black54),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  color: isSelected
+                      ? Colors.white
+                      : (isDark ? Colors.white70 : Colors.black87),
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _SectionTitle extends StatelessWidget {
-  const _SectionTitle(this.title);
+  const _SectionTitle(this.title, {required this.isDark});
   final String title;
+  final bool isDark;
 
   @override
   Widget build(BuildContext context) {
@@ -461,8 +646,8 @@ class _SectionTitle extends StatelessWidget {
       padding: const EdgeInsets.only(left: 4, bottom: 8),
       child: Text(
         title.toUpperCase(),
-        style: const TextStyle(
-          color: Colors.white54,
+        style: TextStyle(
+          color: isDark ? Colors.white54 : Colors.black45,
           fontSize: 11,
           fontWeight: FontWeight.bold,
           letterSpacing: 1.2,

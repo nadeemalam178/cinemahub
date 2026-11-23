@@ -1,240 +1,162 @@
 import 'stremio_adapter.dart';
+import '../streaming/diagnostics/source_health_checker.dart';
 
-/// Exhaustive FMHY video streaming provider engine.
-/// Scrapes and formats endpoints across the full roster of sites from https://fmhy.net/video.
+/// Categorization of FMHY streaming and directory sources
+enum FmhyServerCategory {
+  htmlEmbed,        // In-app sandboxed video embed iframe (e.g. VidSrc, VidLink, 2Embed)
+  directMedia,      // Direct progressive MP4 / HLS / DASH stream
+  websiteDirectory, // General external website or directory portal (not an in-app player)
+}
+
+/// Represents an accessible FMHY streaming server specification with URL templates.
+/// Note: These servers are verified for HTTP reachability and host activity,
+/// but video stream playback for any specific title depends on the third-party
+/// hoster's catalog, upstream CDN, and anti-bot checks.
+class FmhyServerEntry {
+  const FmhyServerEntry({
+    required this.id,
+    required this.name,
+    required this.domain,
+    required this.movieUrlTemplate,
+    required this.tvUrlTemplate,
+    this.prefersTmdb = true,
+    this.category = FmhyServerCategory.htmlEmbed,
+    this.attribution = 'FMHY Directory (https://fmhy.net/video)',
+    this.customHeaders = const {},
+  });
+
+  final String id;
+  final String name;
+  final String domain;
+  final String movieUrlTemplate;
+  final String tvUrlTemplate;
+  final bool prefersTmdb;
+  final FmhyServerCategory category;
+  final String attribution;
+  final Map<String, String> customHeaders;
+
+  /// Construct movie stream URL with TMDB or IMDb ID
+  String buildMovieUrl({required String tmdbId, String? imdbId}) {
+    final id = (prefersTmdb && tmdbId.isNotEmpty)
+        ? tmdbId
+        : ((imdbId != null && imdbId.isNotEmpty) ? imdbId : tmdbId);
+    return movieUrlTemplate.replaceAll('{id}', id);
+  }
+
+  /// Construct TV episode stream URL with TMDB or IMDb ID, season, and episode
+  String buildTvUrl({
+    required String tmdbId,
+    String? imdbId,
+    required int season,
+    required int episode,
+  }) {
+    final id = (prefersTmdb && tmdbId.isNotEmpty)
+        ? tmdbId
+        : ((imdbId != null && imdbId.isNotEmpty) ? imdbId : tmdbId);
+    return tvUrlTemplate
+        .replaceAll('{id}', id)
+        .replaceAll('{season}', season.toString())
+        .replaceAll('{episode}', episode.toString());
+  }
+
+  /// Generate standard browser headers required for embed loading
+  Map<String, String> get resolvedHeaders => {
+        'Referer': 'https://$domain/',
+        'Origin': 'https://$domain',
+        'User-Agent':
+            'Mozilla/5.0 (Linux; Android 13; Pixel 7 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+        ...customHeaders,
+      };
+}
+
+/// Provider engine for verified FMHY streaming servers and web embeds.
+/// Standardizes source discovery, removes dead mirrors, deduplicates domains,
+/// and eliminates fabricated speed and reliability metrics.
 class FmhyProviderEngine {
-  const FmhyProviderEngine();
+  const FmhyProviderEngine({this.healthChecker});
 
-  /// Comprehensive list of 28+ verified FMHY streaming servers
-  static const List<Map<String, dynamic>> fmhyServers = [
-    {
-      'id': 'vidsrc_to',
-      'name': 'VidSrc PRO',
-      'speed': 'Fast 1080p',
-      'reliability': 98,
-      'movie': 'https://vidsrc.to/embed/movie/',
-      'tv': 'https://vidsrc.to/embed/tv/',
-      'prefersTmdb': true,
-    },
-    {
-      'id': 'superembed',
-      'name': 'SuperEmbed / MultiEmbed',
-      'speed': 'Ultra Fast 1080p',
-      'reliability': 97,
-      'movie': 'https://multiembed.mov/?video_id=',
-      'tv': 'https://multiembed.mov/?video_id=',
-      'prefersTmdb': true,
-    },
-    {
-      'id': 'vidlink',
-      'name': 'VidLink Cloud',
-      'speed': 'Fast 1080p',
-      'reliability': 96,
-      'movie': 'https://vidlink.pro/movie/',
-      'tv': 'https://vidlink.pro/tv/',
-      'prefersTmdb': true,
-    },
-    {
-      'id': 'embed_su',
-      'name': 'Embed.su Cloud',
-      'speed': 'Ultra Fast 1080p',
-      'reliability': 95,
-      'movie': 'https://embed.su/embed/movie/',
-      'tv': 'https://embed.su/embed/tv/',
-      'prefersTmdb': true,
-    },
-    {
-      'id': 'vidsrc_me',
-      'name': 'VidSrc Classic (me)',
-      'speed': '1080p Multi-sub',
-      'reliability': 95,
-      'movie': 'https://vidsrc.me/embed/movie?imdb=',
-      'tv': 'https://vidsrc.me/embed/tv?imdb=',
-      'prefersTmdb': false,
-    },
-    {
-      'id': 'vidsrc_icu',
-      'name': 'VidSrc ICU Direct',
-      'speed': '1080p 60fps',
-      'reliability': 94,
-      'movie': 'https://vidsrc.icu/embed/movie/',
-      'tv': 'https://vidsrc.icu/embed/tv/',
-      'prefersTmdb': true,
-    },
-    {
-      'id': 'two_embed',
-      'name': '2Embed Stream',
-      'speed': '1080p HD',
-      'reliability': 93,
-      'movie': 'https://www.2embed.cc/embed/',
-      'tv': 'https://www.2embed.cc/embedtv/',
-      'prefersTmdb': true,
-    },
-    {
-      'id': 'autoembed',
-      'name': 'AutoEmbed CC',
-      'speed': 'Fast HD',
-      'reliability': 92,
-      'movie': 'https://autoembed.cc/embed/movie/',
-      'tv': 'https://autoembed.cc/embed/tv/',
-      'prefersTmdb': true,
-    },
-    {
-      'id': 'smashystream',
-      'name': 'SmashyStream',
-      'speed': 'Multi-Server HD',
-      'reliability': 91,
-      'movie': 'https://player.smashystream.com/movie/',
-      'tv': 'https://player.smashystream.com/tv/',
-      'prefersTmdb': true,
-    },
-    {
-      'id': 'moviesapi',
-      'name': 'MoviesAPI Club',
-      'speed': 'Fast 1080p',
-      'reliability': 91,
-      'movie': 'https://moviesapi.club/movie/',
-      'tv': 'https://moviesapi.club/tv/',
-      'prefersTmdb': true,
-    },
-    {
-      'id': 'vidsrc_net',
-      'name': 'VidSrc Network',
-      'speed': '1080p HD',
-      'reliability': 90,
-      'movie': 'https://vidsrc.net/embed/movie/',
-      'tv': 'https://vidsrc.net/embed/tv/',
-      'prefersTmdb': true,
-    },
-    {
-      'id': 'vidsrc_xyz',
-      'name': 'VidSrc XYZ',
-      'speed': '1080p HD',
-      'reliability': 90,
-      'movie': 'https://vidsrc.xyz/embed/movie/',
-      'tv': 'https://vidsrc.xyz/embed/tv/',
-      'prefersTmdb': true,
-    },
-    {
-      'id': 'vidsrc_rip',
-      'name': 'VidSrc RIP Cloud',
-      'speed': '1080p Direct',
-      'reliability': 89,
-      'movie': 'https://vidsrc.rip/embed/movie/',
-      'tv': 'https://vidsrc.rip/embed/tv/',
-      'prefersTmdb': true,
-    },
-    {
-      'id': 'vidsrc_pm',
-      'name': 'VidSrc PM Mirror',
-      'speed': '1080p HD',
-      'reliability': 89,
-      'movie': 'https://vidsrc.pm/embed/movie/',
-      'tv': 'https://vidsrc.pm/embed/tv/',
-      'prefersTmdb': true,
-    },
-    {
-      'id': 'vidsrc_in',
-      'name': 'VidSrc IN Mirror',
-      'speed': '1080p HD',
-      'reliability': 88,
-      'movie': 'https://vidsrc.in/embed/movie/',
-      'tv': 'https://vidsrc.in/embed/tv/',
-      'prefersTmdb': true,
-    },
-    {
-      'id': 'rive_stream',
-      'name': 'Rive Stream Engine',
-      'speed': 'Fast HD',
-      'reliability': 88,
-      'movie': 'https://rive.stream/embed/movie/',
-      'tv': 'https://rive.stream/embed/tv/',
-      'prefersTmdb': true,
-    },
-    {
-      'id': 'frembed',
-      'name': 'Frembed Stream',
-      'speed': 'HD Multi-Audio',
-      'reliability': 87,
-      'movie': 'https://frembed.live/api/film.php?id=',
-      'tv': 'https://frembed.live/api/serie.php?id=',
-      'prefersTmdb': true,
-    },
-    {
-      'id': 'vidfast',
-      'name': 'VidFast Cloud',
-      'speed': '1080p Fast',
-      'reliability': 87,
-      'movie': 'https://vidfast.co/movie/',
-      'tv': 'https://vidfast.co/tv/',
-      'prefersTmdb': true,
-    },
-    {
-      'id': 'nontongo',
-      'name': 'MovieWeb / NontonGo',
-      'speed': 'Direct HD',
-      'reliability': 86,
-      'movie': 'https://www.NontonGo.win/embed/movie/',
-      'tv': 'https://www.NontonGo.win/embed/tv/',
-      'prefersTmdb': true,
-    },
-    {
-      'id': 'autoembed_to',
-      'name': 'AutoEmbed TO',
-      'speed': '1080p HD',
-      'reliability': 86,
-      'movie': 'https://autoembed.to/movie/tmdb/',
-      'tv': 'https://autoembed.to/tv/tmdb/',
-      'prefersTmdb': true,
-    },
-    {
-      'id': 'streamvid',
-      'name': 'StreamVid Server',
-      'speed': 'Fast 720/1080p',
-      'reliability': 85,
-      'movie': 'https://streamvid.net/embed/',
-      'tv': 'https://streamvid.net/embed/',
-      'prefersTmdb': true,
-    },
-    {
-      'id': 'warezcdn',
-      'name': 'WarezCDN Player',
-      'speed': 'Standard HD',
-      'reliability': 84,
-      'movie': 'https://embed.warezcdn.net/filme/',
-      'tv': 'https://embed.warezcdn.net/serie/',
-      'prefersTmdb': true,
-    },
-    {
-      'id': 'vidsrc_pro_nl',
-      'name': 'VidSrc PRO Netherlands',
-      'speed': '1080p 60fps',
-      'reliability': 84,
-      'movie': 'https://vidsrc.pro/embed/movie/',
-      'tv': 'https://vidsrc.pro/embed/tv/',
-      'prefersTmdb': true,
-    },
-    {
-      'id': 'two_embed_to',
-      'name': '2Embed Global',
-      'speed': '1080p HD',
-      'reliability': 83,
-      'movie': 'https://www.2embed.to/embed/imdb/movie?id=',
-      'tv': 'https://www.2embed.to/embed/imdb/tv?id=',
-      'prefersTmdb': false,
-    },
-    {
-      'id': 'flixhq_embed',
-      'name': 'FlixHQ Mirror',
-      'speed': '1080p HD',
-      'reliability': 82,
-      'movie': 'https://flixhq.to/watch-movie/embed/',
-      'tv': 'https://flixhq.to/watch-tv/embed/',
-      'prefersTmdb': true,
-    },
+  final SourceHealthChecker? healthChecker;
+
+  /// Curated list of accessible, HTTP-verified FMHY embed servers.
+  /// Confirmed active via HTTP probe (HTTP 200/302).
+  /// Note: HTTP responsiveness confirms host domain reachability; actual video
+  /// playback availability varies per title and host upstream CDN.
+  /// Filters out dead domains and obsolete mirrors (such as multiembed.mov,
+  /// vidsrc.xyz, vidsrc.rip, autoembed.cc, and embed.su).
+  static const List<FmhyServerEntry> verifiedServers = [
+    FmhyServerEntry(
+      id: 'vidsrc_to',
+      name: 'VidSrc PRO',
+      domain: 'vidsrc.to',
+      movieUrlTemplate: 'https://vidsrc.to/embed/movie/{id}',
+      tvUrlTemplate: 'https://vidsrc.to/embed/tv/{id}/{season}/{episode}',
+      prefersTmdb: true,
+    ),
+    FmhyServerEntry(
+      id: 'vidlink',
+      name: 'VidLink Cloud',
+      domain: 'vidlink.pro',
+      movieUrlTemplate: 'https://vidlink.pro/movie/{id}',
+      tvUrlTemplate: 'https://vidlink.pro/tv/{id}/{season}/{episode}',
+      prefersTmdb: true,
+    ),
+    FmhyServerEntry(
+      id: 'vidsrc_me',
+      name: 'VidSrc Classic (SH)',
+      domain: 'vidsrc.me',
+      movieUrlTemplate: 'https://vidsrc.me/embed/movie?imdb={id}',
+      tvUrlTemplate: 'https://vidsrc.me/embed/tv?imdb={id}&season={season}&episode={episode}',
+      prefersTmdb: false,
+    ),
+    FmhyServerEntry(
+      id: 'two_embed',
+      name: '2Embed Stream',
+      domain: 'www.2embed.cc',
+      movieUrlTemplate: 'https://www.2embed.cc/embed/{id}',
+      tvUrlTemplate: 'https://www.2embed.cc/embedtv/{id}&s={season}&e={episode}',
+      prefersTmdb: true,
+    ),
+    FmhyServerEntry(
+      id: 'frembed',
+      name: 'Frembed Multi-Audio',
+      domain: 'frembed.live',
+      movieUrlTemplate: 'https://frembed.live/api/film.php?id={id}',
+      tvUrlTemplate: 'https://frembed.live/api/serie.php?id={id}&s={season}&e={episode}',
+      prefersTmdb: true,
+    ),
+    FmhyServerEntry(
+      id: 'nontongo',
+      name: 'NontonGo MovieWeb',
+      domain: 'www.nontongo.win',
+      movieUrlTemplate: 'https://www.NontonGo.win/embed/movie/{id}',
+      tvUrlTemplate: 'https://www.NontonGo.win/embed/tv/{id}/{season}/{episode}',
+      prefersTmdb: true,
+    ),
+    FmhyServerEntry(
+      id: 'warezcdn',
+      name: 'WarezCDN Player',
+      domain: 'embed.warezcdn.net',
+      movieUrlTemplate: 'https://embed.warezcdn.net/filme/{id}',
+      tvUrlTemplate: 'https://embed.warezcdn.net/serie/{id}/{season}/{episode}',
+      prefersTmdb: true,
+    ),
   ];
 
-  /// Resolves all available FMHY streams for given TMDB ID and/or IMDb ID.
+  /// Deduplicate servers by canonical base domain to prevent redundant mirrors
+  static List<FmhyServerEntry> deduplicateServers(List<FmhyServerEntry> servers) {
+    final seen = <String>{};
+    final result = <FmhyServerEntry>[];
+    for (final s in servers) {
+      final canonical = s.domain.toLowerCase().replaceFirst(RegExp(r'^www\.'), '');
+      if (seen.add(canonical)) {
+        result.add(s);
+      }
+    }
+    return result;
+  }
+
+  /// Resolves available FMHY streams for given TMDB and/or IMDb ID.
+  /// Eliminates fake 1080p speed strings and fabricated reliability scores.
   List<StreamResult> resolveAllStreams({
     required String tmdbId,
     String? imdbId,
@@ -242,92 +164,60 @@ class FmhyProviderEngine {
     int? season,
     int? episode,
   }) {
-    final streams = <StreamResult>[];
     final s = season ?? 1;
     final ep = episode ?? 1;
 
-    // Clean inputs: strip any leftover prefixes
+    // Clean inputs: strip non-numeric from TMDB and validate IMDb format (tt followed by digits)
     final cleanTmdb = tmdbId.replaceAll(RegExp(r'[^0-9]'), '');
-    final cleanImdb = (imdbId != null && imdbId.startsWith('tt')) ? imdbId : '';
+    final imdbMatch = RegExp(r'tt\d+').firstMatch(imdbId ?? '');
+    final cleanImdb = imdbMatch != null ? imdbMatch.group(0)! : '';
 
     if (cleanTmdb.isEmpty && cleanImdb.isEmpty) {
       return [];
     }
 
-    for (final server in fmhyServers) {
-      final idToUse = (server['prefersTmdb'] == true && cleanTmdb.isNotEmpty)
-          ? cleanTmdb
-          : (cleanImdb.isNotEmpty ? cleanImdb : cleanTmdb);
+    final uniqueServers = deduplicateServers(verifiedServers);
+    final streams = <StreamResult>[];
 
-      if (idToUse.isEmpty) continue;
-
-      String playUrl = '';
-      final isSuperEmbed = server['id'] == 'superembed';
-      final isVidSrcMe = server['id'] == 'vidsrc_me';
-      final isFrembed = server['id'] == 'frembed';
-      final is2EmbedImdb = server['id'] == 'two_embed_to';
-
-      if (isMovie) {
-        if (isSuperEmbed) {
-          playUrl = cleanTmdb.isNotEmpty
-              ? '${server['movie']}$cleanTmdb&tmdb=1'
-              : '${server['movie']}$cleanImdb';
-        } else if (isVidSrcMe) {
-          final target = cleanImdb.isNotEmpty ? cleanImdb : cleanTmdb;
-          playUrl = '${server['movie']}$target';
-        } else if (isFrembed) {
-          playUrl = '${server['movie']}$idToUse';
-        } else if (is2EmbedImdb) {
-          final target = cleanImdb.isNotEmpty ? cleanImdb : cleanTmdb;
-          playUrl = '${server['movie']}$target';
-        } else {
-          playUrl = '${server['movie']}$idToUse';
-        }
-      } else {
-        if (isSuperEmbed) {
-          playUrl = cleanTmdb.isNotEmpty
-              ? '${server['tv']}$cleanTmdb&season=$s&episode=$ep&tmdb=1'
-              : '${server['tv']}$cleanImdb&season=$s&episode=$ep';
-        } else if (isVidSrcMe) {
-          final target = cleanImdb.isNotEmpty ? cleanImdb : cleanTmdb;
-          playUrl = '${server['tv']}$target&season=$s&episode=$ep';
-        } else if (server['id'] == 'two_embed') {
-          playUrl = '${server['tv']}$idToUse&s=$s&e=$ep';
-        } else if (isFrembed) {
-          playUrl = '${server['tv']}$idToUse&s=$s&e=$ep';
-        } else if (is2EmbedImdb) {
-          final target = cleanImdb.isNotEmpty ? cleanImdb : cleanTmdb;
-          playUrl = '${server['tv']}$target&s=$s&e=$ep';
-        } else {
-          playUrl = '${server['tv']}$idToUse/$s/$ep';
+    for (final server in uniqueServers) {
+      // Check if server is currently known to be down via health tracker
+      if (healthChecker != null) {
+        final record = healthChecker!.getRecord('https://${server.domain}');
+        if (!record.isUsable) {
+          continue; // Skip persistently failing server
         }
       }
 
+      final streamUrl = isMovie
+          ? server.buildMovieUrl(tmdbId: cleanTmdb, imdbId: cleanImdb)
+          : server.buildTvUrl(tmdbId: cleanTmdb, imdbId: cleanImdb, season: s, episode: ep);
+
+      if (streamUrl.isEmpty) continue;
+
+      final isEmbed = server.category == FmhyServerCategory.htmlEmbed;
+      final isOrdinaryWebsite = server.category == FmhyServerCategory.websiteDirectory;
+
       streams.add(
         StreamResult(
-          url: playUrl,
-          name: '${server['name']} • ${server['speed']}',
-          type: 'text/html',
+          url: streamUrl,
+          name: server.name,
+          type: isEmbed ? 'text/html' : (isOrdinaryWebsite ? 'text/plain' : 'video/mp4'),
           behaviorHints: {
-            'isWebEmbed': true,
-            'title': '🛡️ uBlock Ad-Blocked In-App Player\nServer: ${server['name']} • Speed: ${server['speed']}',
-            'reliability': server['reliability'],
-            'speed': server['speed'],
-            'serverId': server['id'],
+            'isWebEmbed': isEmbed,
+            'isOrdinaryWebsite': isOrdinaryWebsite,
+            'isDirectHttp': !isEmbed && !isOrdinaryWebsite,
+            'isTorrent': false,
+            'provider': 'FMHY / ${server.name}',
+            'serverId': server.id,
+            'domain': server.domain,
+            'attribution': server.attribution,
             'category': 'fmhy',
-            'categoryLabel': 'FMHY Video Servers',
-            'provider': 'FMHY',
+            'categoryLabel': isEmbed ? 'FMHY Embed Server' : 'FMHY Web Portal',
+            'headers': server.resolvedHeaders,
           },
         ),
       );
     }
-
-    // Sort by reliability rank descending
-    streams.sort((a, b) {
-      final relA = a.behaviorHints?['reliability'] as int? ?? 80;
-      final relB = b.behaviorHints?['reliability'] as int? ?? 80;
-      return relB.compareTo(relA);
-    });
 
     return streams;
   }

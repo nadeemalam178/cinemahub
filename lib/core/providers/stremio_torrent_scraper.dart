@@ -1,18 +1,22 @@
+import 'dart:async';
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
+import '../streaming/diagnostics/streaming_logger.dart';
+import '../streaming/models/stream_source.dart';
 import 'stremio_adapter.dart';
 
 /// Scrapes Stremio community torrent addons (Torrentio, MediaFusion, Comet, KnightCrawler)
-/// with support for Real-Debrid API keys, custom addons, and season:episode TV series formatting.
+/// with support for Real-Debrid API keys, custom addons, manifest validation,
+/// and strict series (:season:episode) vs movie Stremio protocol routing.
 class StremioTorrentScraper {
-  StremioTorrentScraper({Dio? dio})
-      : _dio = dio ??
-            Dio(BaseOptions(
-              connectTimeout: const Duration(seconds: 10),
-              receiveTimeout: const Duration(seconds: 12),
-            ));
+  StremioTorrentScraper({
+    StremioAdapter? adapter,
+    Dio? dio,
+  }) : _adapter = adapter ?? StremioAdapter(dio: dio);
 
-  final Dio _dio;
+  final StremioAdapter _adapter;
+
+  // In-memory cache for parsed addon manifests
+  final Map<String, AddonManifest> _manifestCache = {};
 
   /// Verified public Stremio torrent addons
   static const List<Map<String, String>> communityAddons = [
@@ -39,6 +43,10 @@ class StremioTorrentScraper {
   ];
 
   /// Fetch torrent streams for movie or TV show across community addons.
+  ///
+  /// Conforms strictly to Stremio Addon Protocol specification:
+  /// For movies: /stream/movie/{imdbId}.json
+  /// For series: /stream/series/{imdbId}:{season}:{episode}.json
   Future<List<StreamResult>> fetchAllTorrentStreams({
     required String type, // 'movie' or 'series'
     required String imdbId,
@@ -47,44 +55,63 @@ class StremioTorrentScraper {
     String? realDebridKey,
     List<String>? customAddonUrls,
   }) async {
-    // Ensure clean IMDb ID (must start with 'tt')
-    final cleanImdb = imdbId.contains('tt')
-        ? 'tt${imdbId.split('tt').last.split(RegExp(r'[^0-9]')).first}'
-        : '';
+    // 1. Ensure clean IMDb ID (must match tt followed by digits)
+    final imdbMatch = RegExp(r'tt\d+').firstMatch(imdbId);
+    final cleanImdb = imdbMatch != null ? imdbMatch.group(0)! : '';
 
     if (cleanImdb.isEmpty) {
-      debugPrint('StremioTorrentScraper: No valid IMDb ID found in "$imdbId"');
+      StreamingLogger.instance.logStreamRequest(
+        'StremioScraper',
+        'invalid_id',
+        statusCode: 400,
+        streamCount: 0,
+        error: 'No valid IMDb ID found in "$imdbId"',
+      );
       return [];
     }
 
-    // Torrentio and Stremio protocol require :season:episode for TV series
+    // 2. Validate series vs movie routing constraints
     final isSeries = type == 'series';
-    final s = season ?? 1;
-    final ep = episode ?? 1;
-    final streamId = isSeries ? '$cleanImdb:$s:$ep' : cleanImdb;
+    if (isSeries && (season == null || episode == null)) {
+      StreamingLogger.instance.logStreamRequest(
+        'StremioScraper',
+        'series_missing_episode',
+        statusCode: 400,
+        streamCount: 0,
+        error: 'Series request requires both season and episode numbers for $cleanImdb',
+      );
+      return [];
+    }
 
+    final streamId = isSeries ? '$cleanImdb:$season:$episode' : cleanImdb;
     final results = <StreamResult>[];
     final rdKey = (realDebridKey != null && realDebridKey.trim().isNotEmpty)
         ? realDebridKey.trim()
         : null;
 
-    // Build list of target addons to query
-    final targetAddons = <Map<String, String>>[];
+    // 3. Build target addons list
+    final targetAddons = <Map<String, dynamic>>[];
 
     for (final addon in communityAddons) {
       String base = addon['baseUrl']!;
-      // If Torrentio and Real-Debrid configured, inject RD token
+      bool isDebridAddon = false;
+      String displayName = addon['name']!;
+
       if (addon['id'] == 'torrentio' && rdKey != null) {
         base = 'https://torrentio.strem.fun/realdebrid=$rdKey';
+        isDebridAddon = true;
+        displayName = 'Torrentio (RD)';
       }
+
       targetAddons.add({
         'id': addon['id']!,
-        'name': addon['name']!,
+        'name': displayName,
         'baseUrl': base,
+        'isDebrid': isDebridAddon,
       });
     }
 
-    // Add any user-configured custom addon URLs
+    // Add user-configured custom addon URLs
     if (customAddonUrls != null) {
       for (int i = 0; i < customAddonUrls.length; i++) {
         final url = customAddonUrls[i].trim();
@@ -96,109 +123,161 @@ class StremioTorrentScraper {
             'id': 'custom_$i',
             'name': 'Custom Addon ${i + 1}',
             'baseUrl': cleanBase,
+            'isDebrid': false,
           });
         }
       }
     }
 
+    // 4. Query target addons in parallel with manifest validation
     await Future.wait(
       targetAddons.map((addon) async {
+        final base = addon['baseUrl'] as String;
+        final addonName = addon['name'] as String;
+        final addonId = addon['id'] as String;
+        final isDebridTarget = addon['isDebrid'] == true;
+
         try {
-          final url = '${addon['baseUrl']}/stream/$type/$streamId.json';
-          final response = await _dio.get(url);
-
-          if (response.statusCode == 200 && response.data is Map) {
-            final streams = response.data['streams'] as List?;
-            if (streams != null) {
-              for (final raw in streams) {
-                if (raw is Map) {
-                  final title =
-                      raw['title'] as String? ?? raw['name'] as String? ?? '';
-                  final infoHash = raw['infoHash'] as String?;
-                  final directUrl = raw['url'] as String?;
-
-                  String streamUrl = '';
-                  String magnetUri = '';
-                  bool isDirectHttp = false;
-
-                  if (directUrl != null && directUrl.isNotEmpty) {
-                    streamUrl = directUrl;
-                    isDirectHttp = directUrl.startsWith('http://') || directUrl.startsWith('https://');
-                  } else if (infoHash != null && infoHash.isNotEmpty) {
-                    magnetUri =
-                        'magnet:?xt=urn:btih:$infoHash&dn=${Uri.encodeComponent(title)}';
-                    streamUrl = magnetUri;
-                  }
-
-                  if (streamUrl.isNotEmpty) {
-                    final quality = _extractQuality(title);
-                    final seeders = _extractSeeders(title);
-                    final isDebrid = rdKey != null && isDirectHttp;
-
-                    results.add(StreamResult(
-                      url: streamUrl,
-                      name: isDebrid
-                          ? '⚡ Real-Debrid • $quality'
-                          : '${addon['name']} • $quality',
-                      type: isDirectHttp ? 'video/mp4' : 'application/x-bittorrent',
-                      behaviorHints: {
-                        'title': '$title\n⚡ Seeders: $seeders',
-                        'isTorrent': !isDirectHttp,
-                        'isDirectHttp': isDirectHttp,
-                        'isDebrid': isDebrid,
-                        'isWebEmbed': false,
-                        'infoHash': infoHash,
-                        'magnetUri': magnetUri,
-                        'seeders': seeders,
-                        'quality': quality,
-                        'addon': addon['id'],
-                        'category': 'stremio',
-                        'categoryLabel': isDebrid ? 'Real-Debrid Direct' : 'Community Torrent',
-                        'provider': addon['name'],
-                      },
-                    ));
-                  }
-                }
-              }
+          // Validate addon manifest if not already cached
+          AddonManifest? manifest = _manifestCache[base];
+          if (manifest == null) {
+            manifest = await _adapter.fetchManifest(base);
+            if (manifest != null) {
+              _manifestCache[base] = manifest;
             }
           }
+
+          // If manifest was successfully fetched, verify resource & type support
+          if (manifest != null) {
+            final supports = manifest.supportsStreamFor(type, id: streamId);
+            if (!supports) {
+              StreamingLogger.instance.logStreamRequest(
+                addonName,
+                '$base/stream/$type/$streamId.json',
+                statusCode: 200,
+                streamCount: 0,
+                error: 'Addon does not support stream for type=$type, id=$streamId',
+              );
+              return;
+            }
+          }
+
+          // Fetch streams via StremioAdapter
+          final streams = await _adapter.fetchStreams(
+            baseUrl: base,
+            type: type,
+            id: cleanImdb,
+            season: season,
+            episode: episode,
+            addonName: addonName,
+          );
+
+          for (final stream in streams) {
+            final directUrl = stream.url;
+            final isDirectHttp = directUrl.startsWith('http://') || directUrl.startsWith('https://');
+            final isDebrid = isDebridTarget ||
+                (rdKey != null && isDirectHttp) ||
+                directUrl.contains('real-debrid.com') ||
+                stream.name.contains('[RD+]');
+
+            final rawText = stream.description ?? stream.name;
+            final quality = StreamSource.extractQuality(rawText);
+            final seeders = StreamSource.extractSeeders(rawText);
+            final language = StreamSource.extractLanguage(rawText);
+            final sizeBytes = stream.size ?? StreamSource.extractSizeBytes(rawText);
+
+            final hints = Map<String, dynamic>.from(stream.behaviorHints ?? const {});
+            hints['addon'] = addonId;
+            hints['provider'] = addonName;
+            hints['isTorrent'] = !isDirectHttp;
+            hints['isDirectHttp'] = isDirectHttp;
+            hints['isDebrid'] = isDebrid;
+            hints['isWebEmbed'] = false;
+            hints['category'] = 'stremio';
+            hints['categoryLabel'] = isDebrid ? 'Real-Debrid Direct' : 'Community Torrent';
+            if (quality != null) hints['quality'] = quality;
+            if (seeders != null) hints['seeders'] = seeders;
+            if (language != null) hints['language'] = language;
+            if (sizeBytes != null) hints['sizeBytes'] = sizeBytes;
+            if (stream.hash != null) hints['infoHash'] = stream.hash;
+            if (stream.fileIndex != null) hints['fileIndex'] = stream.fileIndex;
+
+            // Build clean user-facing title
+            final nameBuffer = StringBuffer();
+            if (isDebrid) {
+              nameBuffer.write('⚡ Real-Debrid');
+            } else {
+              nameBuffer.write(addonName);
+            }
+            if (quality != null) {
+              nameBuffer.write(' • $quality');
+            }
+
+            results.add(StreamResult(
+              name: nameBuffer.toString(),
+              url: stream.url,
+              type: isDirectHttp ? (stream.type.isNotEmpty ? stream.type : 'video/mp4') : 'application/x-bittorrent',
+              hash: stream.hash,
+              size: sizeBytes,
+              fileIndex: stream.fileIndex,
+              description: stream.description ?? stream.name,
+              behaviorHints: hints,
+              subtitles: stream.subtitles,
+            ));
+          }
         } catch (e) {
-          debugPrint('Scraping ${addon['name']} failed: $e');
+          StreamingLogger.instance.logStreamRequest(
+            addonName,
+            '$base/stream/$type/$streamId.json',
+            statusCode: 0,
+            streamCount: 0,
+            error: e.toString(),
+          );
         }
       }),
     );
 
-    // Sort: Debrid first, then highest seeders
-    results.sort((a, b) {
+    // 5. Deduplicate streams by infoHash + fileIndex or clean URL
+    final deduplicated = <StreamResult>[];
+    final seenKeys = <String>{};
+
+    for (final stream in results) {
+      final key = (stream.hash != null && stream.hash!.isNotEmpty)
+          ? 'hash_${stream.hash}_${stream.fileIndex ?? 0}'
+          : stream.url.trim();
+      if (key.isNotEmpty && seenKeys.add(key)) {
+        deduplicated.add(stream);
+      }
+    }
+
+    // 6. Sort: Real-Debrid first, then highest genuine seeders, then Quality, then File Size
+    deduplicated.sort((a, b) {
       final aDebrid = a.behaviorHints?['isDebrid'] == true ? 1 : 0;
       final bDebrid = b.behaviorHints?['isDebrid'] == true ? 1 : 0;
       if (aDebrid != bDebrid) return bDebrid.compareTo(aDebrid);
 
       final sA = a.behaviorHints?['seeders'] as int? ?? 0;
       final sB = b.behaviorHints?['seeders'] as int? ?? 0;
-      return sB.compareTo(sA);
+      if (sA != sB) return sB.compareTo(sA);
+
+      final qA = _qualityWeight(a.behaviorHints?['quality'] as String?);
+      final qB = _qualityWeight(b.behaviorHints?['quality'] as String?);
+      if (qA != qB) return qB.compareTo(qA);
+
+      final sizeA = a.size ?? 0;
+      final sizeB = b.size ?? 0;
+      return sizeB.compareTo(sizeA);
     });
 
-    return results;
+    return deduplicated;
   }
 
-  String _extractQuality(String text) {
-    if (text.contains('4K') || text.contains('2160p')) return '4K UHD';
-    if (text.contains('1080p')) return '1080p FHD';
-    if (text.contains('720p')) return '720p HD';
-    if (text.contains('HDR')) return 'HDR';
-    return 'HD';
-  }
-
-  int _extractSeeders(String text) {
-    final match = RegExp(r'👤\s*(\d+)|👥\s*(\d+)|⚡\s*(\d+)|[sS]eeders?:\s*(\d+)')
-        .firstMatch(text);
-    if (match != null) {
-      for (int i = 1; i <= match.groupCount; i++) {
-        final val = match.group(i);
-        if (val != null) return int.tryParse(val) ?? 0;
-      }
-    }
-    return 10;
+  static int _qualityWeight(String? quality) {
+    if (quality == null) return 0;
+    if (quality.contains('4K')) return 4;
+    if (quality.contains('1080p')) return 3;
+    if (quality.contains('720p')) return 2;
+    if (quality.contains('480p')) return 1;
+    return 0;
   }
 }

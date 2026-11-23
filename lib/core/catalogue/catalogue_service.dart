@@ -39,8 +39,20 @@ class CatalogueService extends ChangeNotifier {
   }) {
     _debounce['search']?.cancel();
     _debounce['search'] = Timer(const Duration(milliseconds: 500), () async {
-      final movies = await _tmdb.searchMovies(query);
-      final series = await _tmdb.searchSeries(query);
+      final rawMovies = await _tmdb.searchMovies(query);
+      final rawSeries = await _tmdb.searchSeries(query);
+
+      final movies = rawMovies.map((m) {
+        final item = Map<String, dynamic>.from(m);
+        item['title'] ??= item['name'];
+        return _normalizeContent(item);
+      }).toList();
+
+      final series = rawSeries.map((s) {
+        final item = Map<String, dynamic>.from(s);
+        item['name'] ??= item['title'];
+        return _normalizeContent(item);
+      }).toList();
 
       _cache['search:$query'] = [...movies, ...series];
       onMovies(movies);
@@ -151,7 +163,8 @@ class CatalogueService extends ChangeNotifier {
     if (cached != null) return cached;
 
     final episodes = await _tmdb.getSeasonEpisodes(seriesId, seasonNumber);
-    final content = episodes.map((e) => _normalizeContent(e)).toList();
+    // Don't normalize episodes like top-level series; UI expects raw TMDB episode fields
+    final content = episodes.toList();
 
     _cache[key] = content;
     return content;

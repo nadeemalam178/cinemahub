@@ -2,7 +2,7 @@ name: cinemahub
 description: "CinemaHub — a private streaming platform for approved friends. Premium cinematic UI, Firebase auth, TMDB catalogue, Stremio-compatible providers, and cloud APK builds."
 publish_to: 'none'
 
-version: 1.5.1+7
+version: 1.0.0+1
 
 environment:
   sdk: ^3.13.7
@@ -46,6 +46,10 @@ dependencies:
   permission_handler: ^13.0.2
   webview_flutter: ^4.14.1
   webview_flutter_android: ^4.1.0
+  firebase_messaging: ^17.1.0
+  flutter_local_notifications: ^23.0.3
+  torrent_streamer: ^0.0.2
+  flutter_inappwebview: ^6.1.5
 dev_dependencies:
   flutter_test:
     sdk: flutter

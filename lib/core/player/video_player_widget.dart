@@ -1,38 +1,32 @@
-import 'package:chewie/chewie.dart';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:chewie/chewie.dart';
 import 'package:video_player/video_player.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:torrent_streamer/torrent_streamer.dart';
 
+import '../../core/streaming/models/stream_source.dart';
 import '../../core/theme/cinemahub_colors.dart';
-import '../../core/theme/cinemahub_tokens.dart';
-import '../providers/stremio_adapter.dart';
+import '../../core/theme/cinemahub_spacing.dart';
 import 'in_app_adblocked_player.dart';
+import 'm3u8_interceptor.dart';
 
-/// Video player backed by Chewie; supports direct URLs and external players.
-///
-/// When [allowExternalPlayer] is true and the system has another video app
-/// capable of handling the scheme, the user is offered to open the stream
-/// externally — useful for torrents or non-http URIs that chewie cannot play.
 class CinemaPlayer extends StatefulWidget {
   const CinemaPlayer({
     super.key,
     required this.stream,
-    this.title,
-    this.subtitle,
-    this.allowExternalPlayer = false,
-    this.onPlayStarted,
+    this.allowExternalPlayer = true,
     this.onEnded,
+    this.onPlayStarted,
     this.errorBuilder,
   });
 
   final StreamResult stream;
-  final String? title;
-  final String? subtitle;
   final bool allowExternalPlayer;
-  final VoidCallback? onPlayStarted;
   final VoidCallback? onEnded;
-  final Widget Function(Exception)? errorBuilder;
+  final VoidCallback? onPlayStarted;
+  final Widget Function(Exception error)? errorBuilder;
 
   @override
   State<CinemaPlayer> createState() => _CinemaPlayerState();
@@ -46,6 +40,8 @@ class _CinemaPlayerState extends State<CinemaPlayer>
   bool _ready = false;
   bool _errored = false;
   Exception? _lastError;
+  bool _fallbackToEmbed = false;
+  String? _statusText;
 
   @override
   void initState() {
@@ -58,8 +54,8 @@ class _CinemaPlayerState extends State<CinemaPlayer>
   }
 
   Future<void> _initPlayer() async {
-    final url = widget.stream.url;
-    final uri = Uri.tryParse(url);
+    String url = widget.stream.url;
+    Uri? uri = Uri.tryParse(url);
     if (url.isEmpty || uri == null || !uri.hasScheme) {
       if (mounted) {
         setState(() {
@@ -70,19 +66,63 @@ class _CinemaPlayerState extends State<CinemaPlayer>
       return;
     }
 
-    // If stream is marked as an FMHY Web Embed or external viewer, launch immediately
     final isWebEmbed = widget.stream.behaviorHints?['isWebEmbed'] == true;
-    if (isWebEmbed) {
-      if (mounted) {
-        setState(() {
-          _ready = true;
-        });
-      }
-      return;
-    }
+    final isMagnet = widget.stream.type == 'application/x-bittorrent' || widget.stream.behaviorHints?['isTorrent'] == true || url.startsWith('magnet:');
 
     try {
-      final controller = VideoPlayerController.networkUrl(uri);
+      final rawHeaders = widget.stream.behaviorHints?['headers'];
+      final headers = <String, String>{};
+      if (rawHeaders is Map) {
+        for (final entry in rawHeaders.entries) {
+          headers[entry.key.toString()] = entry.value.toString();
+        }
+      }
+
+      if (isMagnet) {
+        if (mounted) setState(() => _statusText = 'Starting Torrent Streamer...');
+
+        await TorrentStreamer.init();
+        await TorrentStreamer.start(url);
+
+        final completer = Completer<String>();
+        TorrentStreamer.addEventListener('ready', (_) async {
+           if (!completer.isCompleted) {
+             final streamUrl = await TorrentStreamer.getStreamUrl();
+             completer.complete(streamUrl);
+           }
+        });
+        TorrentStreamer.addEventListener('error', (err) {
+           if (!completer.isCompleted) completer.completeError(Exception('Torrent failed: $err'));
+        });
+
+        // Wait up to 30 seconds for buffering
+        url = await completer.future.timeout(const Duration(seconds: 30));
+        uri = Uri.parse(url);
+
+      } else if (isWebEmbed) {
+        if (mounted) setState(() => _statusText = 'Bypassing Ads & Extracting Video...');
+        final extractedUrl = await M3u8Interceptor.extract(url, headers: headers);
+        if (extractedUrl != null && extractedUrl.isNotEmpty) {
+          url = extractedUrl;
+          uri = Uri.parse(url);
+        } else {
+          // Fallback to web embed
+          if (mounted) {
+            setState(() {
+              _fallbackToEmbed = true;
+              _ready = true;
+            });
+          }
+          return;
+        }
+      }
+
+      if (mounted) setState(() => _statusText = 'Connecting to Video Stream...');
+
+      final controller = VideoPlayerController.networkUrl(
+        uri!,
+        httpHeaders: headers,
+      );
       _controller = controller;
       await controller.initialize();
       if (!mounted) {
@@ -138,6 +178,11 @@ class _CinemaPlayerState extends State<CinemaPlayer>
     _controller?.dispose();
     _chewieController?.dispose();
     _fadeController.dispose();
+    final isMagnet = widget.stream.type == 'application/x-bittorrent' || widget.stream.behaviorHints?['isTorrent'] == true || widget.stream.url.startsWith('magnet:');
+    if (isMagnet) {
+       TorrentStreamer.stop();
+       TorrentStreamer.dispose();
+    }
     super.dispose();
   }
 
@@ -156,33 +201,39 @@ class _CinemaPlayerState extends State<CinemaPlayer>
     }
 
     final isWebEmbed = widget.stream.behaviorHints?['isWebEmbed'] == true;
-    if (isWebEmbed) {
+    if (_fallbackToEmbed && isWebEmbed) {
       return InAppAdBlockedPlayer(
         url: widget.stream.url,
-        title: widget.title ?? widget.stream.name,
+        title: widget.stream.name,
+        onClose: () => Navigator.of(context).pop(),
       );
     }
 
     if (!_ready || _chewieController == null) {
-      return _LoadingPlaceholder();
+      return Container(
+        color: CinemahubColors.background(Brightness.dark),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(
+                color: CinemahubColors.primary,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                _statusText ?? 'Loading stream...',
+                style: const TextStyle(color: Colors.white70),
+              ),
+            ],
+          ),
+        ),
+      );
     }
 
     return FadeTransition(
       opacity: _fadeController,
-      child: Stack(
-        children: [
-          Chewie(controller: _chewieController!),
-          if (widget.allowExternalPlayer)
-            Positioned(
-              bottom: CinemahubSpacing.xxxl,
-              right: CinemahubSpacing.md,
-              child: FilledButton.tonalIcon(
-                onPressed: _openExternal,
-                icon: const Icon(Icons.open_in_new_rounded, size: 18),
-                label: const Text('Open externally'),
-              ),
-            ),
-        ],
+      child: Chewie(
+        controller: _chewieController!,
       ),
     );
   }
@@ -201,30 +252,6 @@ class _CinemaPlayerState extends State<CinemaPlayer>
       debugPrint('CinemaPlayer: external player launch failed: $e');
     }
     widget.onEnded?.call();
-  }
-}
-
-class _LoadingPlaceholder extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      color: CinemahubColors.background(Brightness.dark),
-      child: const Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(
-              color: CinemahubColors.primary,
-            ),
-            SizedBox(height: 16),
-            Text(
-              'Loading stream…',
-              style: TextStyle(color: Colors.white70),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }
 
@@ -258,36 +285,36 @@ class _ErrorFallback extends StatelessWidget {
               ),
               const SizedBox(height: CinemahubSpacing.md),
               Text(
-                'Playback unavailable',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  color: Colors.white,
-                ),
-                textAlign: TextAlign.center,
+                'Playback Failed',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
               ),
               const SizedBox(height: CinemahubSpacing.sm),
               Text(
                 error,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Colors.white70,
-                ),
+                      color: Colors.white70,
+                    ),
                 textAlign: TextAlign.center,
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
               ),
-              if (stream.url.isNotEmpty) ...[
-                const SizedBox(height: CinemahubSpacing.md),
-                Text(
-                  'Source: ${stream.name}',
-                  style: const TextStyle(
-                    color: Colors.white54,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-              if (allowExternal && stream.url.isNotEmpty) ...[
-                const SizedBox(height: CinemahubSpacing.lg),
-                FilledButton.tonalIcon(
+              if (allowExternal) ...[
+                const SizedBox(height: CinemahubSpacing.xl),
+                FilledButton.icon(
                   onPressed: onOpenExternal,
-                  icon: const Icon(Icons.open_in_new_rounded, size: 18),
-                  label: const Text('Try opening externally'),
+                  icon: const Icon(Icons.open_in_new_rounded),
+                  label: const Text('Open External Player'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: CinemahubColors.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 16,
+                    ),
+                  ),
                 ),
               ],
             ],

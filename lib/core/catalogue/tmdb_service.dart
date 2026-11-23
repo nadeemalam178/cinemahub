@@ -20,7 +20,7 @@ class TmdbService {
       : _apiKey = apiKey ??
             const String.fromEnvironment(
               'TMDB_API_KEY',
-              defaultValue: 'YOUR_TMDB_API_KEY_HERE',
+              defaultValue: '44c6bd7c4e0a48045794d64bf03d982a',
             ),
         _dio = dio ??
             Dio(BaseOptions(

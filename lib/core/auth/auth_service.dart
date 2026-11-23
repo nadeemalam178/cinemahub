@@ -67,13 +67,32 @@ class AuthService extends ChangeNotifier {
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _userDocSub;
   Stream<AuthState> get stateStream => Stream.value(_state);
 
+  static const String _defaultWebClientId =
+      '222608500817-2n8h32n8j5l6c1ivgrj1a9lcd378htsj.apps.googleusercontent.com';
+
+  Future<void>? _initFuture;
+
+  /// Ensures [GoogleSignIn.initialize] is executed strictly once and safely reused.
+  Future<void> _ensureInitialized() {
+    const serverClientId = String.fromEnvironment(
+      'GOOGLE_SERVER_CLIENT_ID',
+      defaultValue: _defaultWebClientId,
+    );
+    _initFuture ??= _googleSignIn.initialize(
+      serverClientId: serverClientId,
+    );
+    return _initFuture!;
+  }
+
   /// Called from main() after optional Firebase wiring.
   void initialize({required bool firebaseConfigured}) {
     _firebaseReady = firebaseConfigured;
-    const serverClientId = String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID', defaultValue: '');
-    if (serverClientId.isNotEmpty) {
-      _googleSignIn.initialize(serverClientId: serverClientId);
-    }
+
+    // Initialize GoogleSignIn asynchronously in background without blocking app startup
+    unawaited(_ensureInitialized().catchError((e) {
+      debugPrint('GoogleSignIn ensureInitialized error: $e');
+    }));
+
     if (!firebaseConfigured || _auth == null) {
       _state = AuthState.signedOut;
       _configError = DefaultFirebaseOptions.configurationStatus;
@@ -81,6 +100,14 @@ class AuthService extends ChangeNotifier {
       return;
     }
     _authSub = _auth.authStateChanges().listen(_onAuthChanged);
+  }
+
+  /// Called when splash animation finishes. If auth status is still loading, transition to signedOut.
+  void onSplashFinished() {
+    if (_state == AuthState.loading) {
+      _state = _user != null ? AuthState.pendingApproval : AuthState.signedOut;
+      notifyListeners();
+    }
   }
 
   void _onAuthChanged(User? user) async {
@@ -102,8 +129,22 @@ class AuthService extends ChangeNotifier {
           .doc(user.uid)
           .snapshots()
           .listen(
-        (doc) {
+        (doc) async {
           if (!doc.exists) {
+            // First time sign in: create initial user document in Firestore
+            try {
+              await _firestore.collection('users').doc(user.uid).set({
+                'uid': user.uid,
+                'email': user.email,
+                'displayName': user.displayName,
+                'photoURL': user.photoURL,
+                'status': 'pending',
+                'role': 'member',
+                'createdAt': FieldValue.serverTimestamp(),
+              }, SetOptions(merge: true));
+            } catch (e) {
+              debugPrint('Error creating user doc in Firestore: $e');
+            }
             _state = AuthState.pendingApproval;
             _isAdmin = false;
             notifyListeners();
@@ -173,29 +214,46 @@ class AuthService extends ChangeNotifier {
       );
     }
     try {
-      // google_sign_in v7.x: authenticate() returns GoogleSignInAccount directly
-      final GoogleSignInAccount account = await _googleSignIn.authenticate();
-      final authInfo = account.authentication;
+      await _ensureInitialized();
+
+      final GoogleSignInAccount? account = await _googleSignIn.authenticate();
+      if (account == null) {
+        // User dismissed the account picker dialog
+        return;
+      }
+
+      final GoogleSignInAuthentication authInfo = await account.authentication;
       final idToken = authInfo.idToken;
+
+      debugPrint('Google Sign-In account: ${account.email}, idToken: ${idToken != null}');
+
       if (idToken == null) {
         throw AuthConfigException(
-          'Google sign-in failed: No ID token received. Ensure Web Client ID and SHA-1 fingerprint are registered in Firebase Console.',
+          'Google sign-in failed: No ID token received from Google. Make sure the Web Client ID is configured.',
         );
       }
+
       final credential = GoogleAuthProvider.credential(
         idToken: idToken,
       );
       await _auth.signInWithCredential(credential);
-      // _onAuthChanged will drive state via real-time subscription.
     } on FirebaseAuthException catch (e) {
+      debugPrint('FirebaseAuthException: ${e.code} ${e.message}');
       throw AuthConfigException(
-        'Google sign-in failed: ${e.message ?? e.code}',
+        'Firebase auth error: ${e.message ?? e.code}',
       );
     } on GoogleSignInException catch (e) {
+      debugPrint('GoogleSignInException: code=${e.code} description=${e.description}');
+      if (e.code == GoogleSignInExceptionCode.canceled) {
+        throw AuthConfigException(
+          'Google sign-in was canceled or blocked. Ensure a Google account is logged into the emulator and your debug keystore SHA-1 is registered in Firebase Console.',
+        );
+      }
       throw AuthConfigException(
-        'Google sign-in cancelled or failed: ${e.description ?? e.code}',
+        'Google sign-in failed: ${e.description ?? e.code}',
       );
     } catch (e) {
+      debugPrint('General sign-in exception: $e');
       throw AuthConfigException('Sign-in failed: $e');
     }
   }
@@ -203,7 +261,9 @@ class AuthService extends ChangeNotifier {
   Future<void> signOut() async {
     await _userDocSub?.cancel();
     _userDocSub = null;
-    await _googleSignIn.signOut();
+    try {
+      await _googleSignIn.signOut();
+    } catch (_) {}
     if (_auth != null) {
       await _auth.signOut();
     }
