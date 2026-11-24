@@ -5,6 +5,10 @@ import 'package:video_player/video_player.dart';
 import 'package:torrent_streamer/torrent_streamer.dart';
 import 'dart:async';
 
+import '../../player/subtitles/subtitle_model.dart';
+import '../../player/subtitles/subtitle_overlay.dart';
+import '../../player/subtitles/subtitle_picker_sheet.dart';
+import '../../player/subtitles/subtitle_service.dart';
 import '../diagnostics/streaming_logger.dart';
 import '../models/stream_source.dart';
 
@@ -30,6 +34,13 @@ class NativeVideoPlayer extends StatefulWidget {
 class _NativeVideoPlayerState extends State<NativeVideoPlayer> {
   VideoPlayerController? _videoPlayerController;
   ChewieController? _chewieController;
+
+  final SubtitleService _subtitleService = SubtitleService();
+  List<CinemaSubtitleTrack> _availableSubtitleTracks = [];
+  CinemaSubtitleTrack? _selectedSubtitleTrack;
+  List<CinemaSubtitleCue> _activeSubtitleCues = [];
+  Duration _subtitleSyncDelay = Duration.zero;
+  CinemaSubtitleStyle _subtitleStyle = const CinemaSubtitleStyle();
 
   bool _isInitializing = true;
   bool _hasFirstFrame = false;
@@ -181,6 +192,9 @@ class _NativeVideoPlayerState extends State<NativeVideoPlayer> {
 
       controller.addListener(_videoListener);
 
+      // Async fetch available subtitle tracks
+      _fetchSubtitles();
+
       if (mounted) {
         setState(() {
           _isInitializing = false;
@@ -203,6 +217,76 @@ class _NativeVideoPlayerState extends State<NativeVideoPlayer> {
         });
       }
     }
+  }
+
+  Future<void> _fetchSubtitles() async {
+    try {
+      final imdbId = widget.source.metadata['imdb_id'] as String? ??
+          widget.source.metadata['imdbId'] as String?;
+
+      final tracks = await _subtitleService.fetchTracks(
+        type: widget.source.metadata['type'] as String? ?? 'movie',
+        imdbId: imdbId,
+        season: widget.source.metadata['season'] as int?,
+        episode: widget.source.metadata['episode'] as int?,
+      );
+
+      if (mounted) {
+        setState(() {
+          _availableSubtitleTracks = tracks;
+        });
+
+        // Auto-select English track if available
+        final englishTrack = tracks.cast<CinemaSubtitleTrack?>().firstWhere(
+              (t) => t?.languageCode.toLowerCase() == 'en' || t?.languageCode.toLowerCase() == 'eng',
+              orElse: () => tracks.isNotEmpty ? tracks.first : null,
+            );
+
+        if (englishTrack != null) {
+          _selectSubtitleTrack(englishTrack);
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _selectSubtitleTrack(CinemaSubtitleTrack? track) async {
+    if (track == null) {
+      if (mounted) {
+        setState(() {
+          _selectedSubtitleTrack = null;
+          _activeSubtitleCues = [];
+        });
+      }
+      return;
+    }
+
+    final cues = await _subtitleService.loadCues(track);
+    if (mounted) {
+      setState(() {
+        _selectedSubtitleTrack = track;
+        _activeSubtitleCues = cues;
+      });
+    }
+  }
+
+  void _openSubtitlePicker() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => SubtitlePickerSheet(
+        tracks: _availableSubtitleTracks,
+        selectedTrack: _selectedSubtitleTrack,
+        onTrackSelected: _selectSubtitleTrack,
+        syncDelay: _subtitleSyncDelay,
+        onSyncDelayChanged: (delay) {
+          setState(() => _subtitleSyncDelay = delay);
+        },
+        style: _subtitleStyle,
+        onStyleChanged: (style) {
+          setState(() => _subtitleStyle = style);
+        },
+      ),
+    );
   }
 
   void _videoListener() {
@@ -300,7 +384,46 @@ class _NativeVideoPlayerState extends State<NativeVideoPlayer> {
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
-        child: Chewie(controller: _chewieController!),
+        child: Stack(
+          children: [
+            // 1. Chewie Player
+            Chewie(controller: _chewieController!),
+
+            // 2. Synchronized Subtitle Overlay
+            ValueListenableBuilder<VideoPlayerValue>(
+              valueListenable: _videoPlayerController!,
+              builder: (context, value, _) {
+                return SubtitleOverlay(
+                  cues: _activeSubtitleCues,
+                  position: value.position,
+                  syncDelay: _subtitleSyncDelay,
+                  style: _subtitleStyle,
+                );
+              },
+            ),
+
+            // 3. Subtitles CC Quick Access Icon Button
+            Positioned(
+              top: 12,
+              right: 12,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.5),
+                  shape: BoxShape.circle,
+                ),
+                child: IconButton(
+                  icon: Icon(
+                    _selectedSubtitleTrack != null ? Icons.subtitles_rounded : Icons.subtitles_outlined,
+                    color: _selectedSubtitleTrack != null ? const Color(0xFFE50914) : Colors.white70,
+                    size: 22,
+                  ),
+                  tooltip: 'Subtitles & Captions',
+                  onPressed: _openSubtitlePicker,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
