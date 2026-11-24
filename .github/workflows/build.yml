@@ -47,9 +47,10 @@ jobs:
         run: |
           echo "$KEYSTORE_BASE64" | base64 --decode > android/app/debug.keystore
 
-      - name: Build APK (Release)
+      - name: Build APK (Release, split per ABI)
         run: |
           flutter build apk --release \
+            --split-per-abi \
             --no-tree-shake-icons \
             --android-skip-build-dependency-validation \
             --dart-define=TMDB_API_KEY=${{ secrets.TMDB_API_KEY }} \
@@ -61,18 +62,18 @@ jobs:
             --dart-define=FIREBASE_STORAGE_BUCKET=${{ secrets.FIREBASE_STORAGE_BUCKET }} \
             --dart-define=FIREBASE_AUTH_DOMAIN=${{ secrets.FIREBASE_AUTH_DOMAIN }}
 
-      - name: Upload Release APK
+      - name: Upload Release APKs
         uses: actions/upload-artifact@v4
         with:
-          name: app-release.apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: release-apks
+          path: build/app/outputs/flutter-apk/*.apk
           retention-days: 30
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          files: build/app/outputs/flutter-apk/app-release.apk
+          files: build/app/outputs/flutter-apk/*.apk
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
