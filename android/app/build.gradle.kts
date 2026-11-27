@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.cinemahub.app"
-    compileSdk = 37
+    compileSdk = 35
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
