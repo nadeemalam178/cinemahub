@@ -13,10 +13,12 @@ import '../network/connectivity_provider.dart';
 /// queued locally when offline so they flush automatically when connectivity returns.
 class SyncService extends ChangeNotifier {
   SyncService({
-    required this._auth,
-    required this._connectivity,
+    required AuthService auth,
+    required ConnectivityProvider connectivity,
     FirebaseFirestore? firestore,
-  }) : _firestoreInstance = firestore {
+  })  : _auth = auth,
+        _connectivity = connectivity,
+        _firestoreInstance = firestore {
     _wasOnline = _connectivity.online;
     _connectivity.addListener(_onConnectivityChanged);
   }

@@ -11,11 +11,14 @@ import '../auth/auth_service.dart';
 /// via `admin/userStatus/users/{uid}` -> Cloud Function `onUserStatusUpdate`.
 class AdminService extends ChangeNotifier {
   AdminService({
-    required this._auth,
+    required AuthService auth,
     FirebaseFirestore? firestore,
-    this._userStream,
-    this._providerStream,
-  }) : _firestoreInstance = firestore;
+    Stream<List<Map<String, dynamic>>>? userStream,
+    Stream<List<Map<String, dynamic>>>? providerStream,
+  })  : _auth = auth,
+        _firestoreInstance = firestore,
+        _userStream = userStream,
+        _providerStream = providerStream;
 
   final AuthService _auth;
   final FirebaseFirestore? _firestoreInstance;

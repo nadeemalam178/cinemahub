@@ -12,8 +12,8 @@ enum HealthStatus { unknown, healthy, degraded, down }
 class ProviderHealth {
   ProviderHealth({
     required this.provider,
-    required this._dio,
-  });
+    required Dio dio,
+  }) : _dio = dio;
 
   final ProviderModel provider;
   final Dio _dio;

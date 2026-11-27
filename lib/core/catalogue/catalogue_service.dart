@@ -9,10 +9,11 @@ import 'tmdb_service.dart';
 /// Unified catalogue service for movies and TV series.
 class CatalogueService extends ChangeNotifier {
   CatalogueService({
-    required this._tmdb,
+    required TmdbService tmdb,
     StremioAddonCatalog? stremio,
     FirebaseFirestore? firestore,
-  })  : _stremio = stremio ?? StremioAddonCatalog(),
+  })  : _tmdb = tmdb,
+        _stremio = stremio ?? StremioAddonCatalog(),
         _firestoreInstance = firestore;
 
   final TmdbService _tmdb;
