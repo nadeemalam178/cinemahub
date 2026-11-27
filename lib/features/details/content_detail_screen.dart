@@ -2,21 +2,23 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../core/catalogue/catalogue_service.dart';
 import '../../core/catalogue/tmdb_service.dart';
 import '../../core/player/playback_engine.dart';
-import '../../core/providers/provider_registry.dart';
 import '../../core/providers/provider_model.dart';
+import '../../core/providers/provider_registry.dart';
 import '../../core/providers/stremio_adapter.dart';
 import '../../core/streaming/models/stream_source.dart';
 import '../../core/streaming/player/player_router.dart';
+import '../../core/sync/sync_service.dart';
 import '../../core/theme/cinemahub_colors.dart';
 import '../../core/theme/cinemahub_tokens.dart';
 import '../../core/theme/widgets.dart';
 
 /// Content detail screen showing metadata from TMDB, season/episode picker for TV series,
-/// and categorized streaming sources (Direct & Embeds, P2P Torrents, All Sources).
+/// watchlist/share actions, and categorized streaming sources.
 class ContentDetailScreen extends StatefulWidget {
   const ContentDetailScreen({
     super.key,
@@ -31,7 +33,7 @@ class ContentDetailScreen extends StatefulWidget {
     this.genreIds,
   });
 
-  final String id; // tmdb:id, stremio:id or raw id
+  final String id; // tmdb:id, stremio:imdb:tt..., or raw id
   final String type; // "movie" | "series"
   final String title;
   final String? posterUrl;
@@ -41,12 +43,15 @@ class ContentDetailScreen extends StatefulWidget {
   final String? releaseDate;
   final List<int>? genreIds;
 
-  /// Extract numeric id for TMDB providers.
+  /// Extract numeric id for TMDB providers if present directly in [id].
   int get tmdbId {
     final parts = id.split(':');
     final last = parts.last;
     return int.tryParse(last) ?? 0;
   }
+
+  /// Extract IMDb ID if present directly in [id] (e.g. `stremio:imdb:tt0137523`).
+  String? get rawImdbId => RegExp(r'tt\d+').firstMatch(id)?.group(0);
 
   @override
   State<ContentDetailScreen> createState() => _ContentDetailScreenState();
@@ -54,8 +59,9 @@ class ContentDetailScreen extends StatefulWidget {
 
 class _ContentDetailScreenState extends State<ContentDetailScreen> {
   Map<String, dynamic>? _meta;
+  int? _resolvedTmdbId;
   int _selectedCategoryTab = 0; // 0: Direct & Embeds, 1: P2P Torrents, 2: All Sources
-  bool _didAutoFetch = false;
+  bool _inWatchlist = false;
 
   // TV Series Season & Episode State
   int _selectedSeason = 1;
@@ -66,41 +72,121 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _loadMeta();
+    _resolvedTmdbId = widget.tmdbId > 0 ? widget.tmdbId : null;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_didAutoFetch && mounted) {
-        _didAutoFetch = true;
-        _autoFetchStreams();
+      if (mounted) {
+        _checkWatchlist();
+        _loadMetaAndStreams();
       }
     });
   }
 
-  Future<void> _loadMeta() async {
-    final tId = widget.tmdbId;
-    if (tId <= 0) return;
-
+  Future<void> _checkWatchlist() async {
     try {
-      if (widget.type == 'movie') {
-        final result = await context.read<TmdbService>().getMovieDetails(tId);
-        if (result != null && mounted) {
-          setState(() => _meta = result);
-          _autoFetchStreams();
-        }
-      } else if (widget.type == 'series') {
-        final result = await context.read<TmdbService>().getSeriesDetails(tId);
-        if (result != null && mounted) {
-          setState(() => _meta = result);
-          _loadEpisodes(_selectedSeason);
-          _autoFetchStreams();
-        }
+      final exists = await context.read<SyncService>().isInWatchlist(widget.id);
+      if (mounted) {
+        setState(() => _inWatchlist = exists);
       }
-    } catch (_) {
-      // Silently handle TMDB fetch errors
+    } catch (_) {}
+  }
+
+  Future<void> _toggleWatchlist() async {
+    final sync = context.read<SyncService>();
+    final nextState = !_inWatchlist;
+    setState(() => _inWatchlist = nextState);
+    try {
+      if (nextState) {
+        await sync.addToWatchlist({
+          'id': widget.id,
+          'type': widget.type,
+          'title': widget.title,
+          'posterUrl': _posterUrl ?? widget.posterUrl,
+          'backdropUrl': _backdrop ?? widget.backdropUrl,
+          'overview': _overview,
+          'rating': _rating,
+          'releaseDate': _releaseDate,
+        });
+      } else {
+        await sync.removeFromWatchlist(widget.id);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(nextState ? 'Added to Watchlist' : 'Removed from Watchlist'),
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _inWatchlist = !nextState);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Watchlist update failed: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 
-  Future<void> _loadEpisodes(int season) async {
-    final tId = widget.tmdbId;
+  Future<void> _shareTitle() async {
+    final year = (_releaseDate != null && _releaseDate!.length >= 4)
+        ? ' (${_releaseDate!.substring(0, 4)})'
+        : '';
+    final imdb = _imdbId;
+    final link = imdb != null && imdb.isNotEmpty
+        ? 'https://www.imdb.com/title/$imdb/'
+        : (_resolvedTmdbId != null
+            ? 'https://www.themoviedb.org/${widget.type == 'series' ? 'tv' : 'movie'}/$_resolvedTmdbId'
+            : '');
+    final text = link.isNotEmpty
+        ? 'Watch ${widget.title}$year on CinemaHub\n$link'
+        : 'Check out ${widget.title}$year on CinemaHub';
+    await SharePlus.instance.share(ShareParams(text: text, subject: widget.title));
+  }
+
+  Future<void> _loadMetaAndStreams() async {
+    final tmdb = context.read<TmdbService>();
+    int tId = _resolvedTmdbId ?? widget.tmdbId;
+
+    try {
+      // Resolve TMDB ID from IMDb ID when navigated from Stremio community shelves
+      if (tId <= 0 && widget.rawImdbId != null) {
+        final match = await tmdb.findByImdbId(widget.rawImdbId!);
+        final matchedId = (match?['id'] as num?)?.toInt();
+        if (matchedId != null && matchedId > 0) {
+          tId = matchedId;
+          if (mounted) {
+            setState(() => _resolvedTmdbId = tId);
+          }
+        }
+      }
+
+      if (tId > 0) {
+        final details = widget.type == 'movie'
+            ? await tmdb.getMovieDetails(tId)
+            : await tmdb.getSeriesDetails(tId);
+        if (details != null && mounted) {
+          setState(() => _meta = details);
+          if (widget.type == 'series') {
+            unawaited(_loadEpisodes(_selectedSeason, tmdbIdOverride: tId));
+          }
+        }
+      }
+    } catch (_) {
+      // Proceed to stream fetching even if TMDB metadata lookup fails
+    }
+
+    if (!mounted) return;
+    final engine = context.read<PlaybackEngine>();
+    final registry = context.read<ProviderRegistry>();
+    await _fetchStreams(engine, registry);
+  }
+
+  Future<void> _loadEpisodes(int season, {int? tmdbIdOverride}) async {
+    final tId = tmdbIdOverride ?? _resolvedTmdbId ?? widget.tmdbId;
     if (tId <= 0) return;
     setState(() {
       _selectedSeason = season;
@@ -127,10 +213,52 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
     _fetchStreams(engine, registry, season: _selectedSeason, episode: _selectedEpisode);
   }
 
-  void _autoFetchStreams() {
-    final engine = context.read<PlaybackEngine>();
-    final registry = context.read<ProviderRegistry>();
-    _fetchStreams(engine, registry);
+  String? get _imdbId {
+    final direct = _meta?['imdb_id'] as String?;
+    if (direct != null && direct.startsWith('tt')) return direct;
+    final ext = _meta?['external_ids'];
+    if (ext is Map) {
+      final extImdb = ext['imdb_id'] as String?;
+      if (extImdb != null && extImdb.startsWith('tt')) return extImdb;
+    }
+    return widget.rawImdbId;
+  }
+
+  String? get _posterUrl =>
+      _meta?['poster_path'] != null
+          ? 'https://image.tmdb.org/t/p/w500${_meta!['poster_path']}'
+          : widget.posterUrl;
+
+  String? get _backdrop =>
+      _meta?['backdrop_path'] != null
+          ? 'https://image.tmdb.org/t/p/w780${_meta!['backdrop_path']}'
+          : widget.backdropUrl;
+
+  String? get _overview =>
+      _meta?['overview'] as String? ?? widget.overview;
+
+  double? get _rating =>
+      (_meta?['vote_average'] as num?)?.toDouble() ?? widget.rating;
+
+  String? get _releaseDate =>
+      _meta?['release_date'] as String? ??
+      _meta?['first_air_date'] as String? ??
+      widget.releaseDate;
+
+  List<int> get _genreIds {
+    final rawIds = _meta?['genre_ids'] as List?;
+    if (rawIds != null && rawIds.isNotEmpty) {
+      return rawIds.whereType<num>().map((e) => e.toInt()).toList();
+    }
+    final detailGenres = _meta?['genres'] as List?;
+    if (detailGenres != null && detailGenres.isNotEmpty) {
+      return detailGenres
+          .whereType<Map>()
+          .map((g) => (g['id'] as num?)?.toInt())
+          .whereType<int>()
+          .toList();
+    }
+    return widget.genreIds ?? const [];
   }
 
   @override
@@ -162,26 +290,6 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
     );
   }
 
-  String? get _backdrop =>
-      _meta?['backdrop_path'] != null
-          ? 'https://image.tmdb.org/t/p/w780${_meta!['backdrop_path']}'
-          : widget.backdropUrl;
-
-  String? get _overview =>
-      _meta?['overview'] as String? ?? widget.overview;
-
-  double? get _rating =>
-      (_meta?['vote_average'] as num?)?.toDouble() ?? widget.rating;
-
-  String? get _releaseDate =>
-      _meta?['release_date'] as String? ??
-      _meta?['first_air_date'] as String? ??
-      widget.releaseDate;
-
-  List<int> get _genreIds =>
-      ((_meta?['genre_ids'] as List?) ?? widget.genreIds ?? const [])
-          .cast<int>();
-
   Widget _buildAppBar() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return SliverAppBar(
@@ -193,16 +301,16 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
         background: Stack(
           fit: StackFit.expand,
           children: [
-            if (_backdrop != null)
+            if (_backdrop != null && _backdrop!.isNotEmpty)
               Image.network(
                 _backdrop!,
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) => Container(
-                  color: CinemahubColors.surface(Brightness.dark),
+                  color: CinemahubColors.surface(Theme.of(context).brightness),
                 ),
               )
             else
-              Container(color: CinemahubColors.surface(Brightness.dark)),
+              Container(color: CinemahubColors.surface(Theme.of(context).brightness)),
             Positioned.fill(
               child: DecoratedBox(
                 decoration: BoxDecoration(
@@ -232,36 +340,25 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
       ),
       actions: [
         IconButton(
-          onPressed: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Added to Watchlist'),
-                duration: Duration(seconds: 2),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
-          },
-          icon: const Icon(Icons.bookmark_border_rounded),
-          color: isDark ? Colors.white : Colors.black87,
+          onPressed: _toggleWatchlist,
+          icon: Icon(_inWatchlist ? Icons.bookmark_rounded : Icons.bookmark_border_rounded),
+          color: _inWatchlist
+              ? CinemahubColors.primary
+              : (isDark ? Colors.white : Colors.black87),
+          tooltip: _inWatchlist ? 'Remove from Watchlist' : 'Add to Watchlist',
         ),
         IconButton(
-          onPressed: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Sharing details link...'),
-                duration: Duration(seconds: 2),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
-          },
+          onPressed: _shareTitle,
           icon: const Icon(Icons.share_rounded),
           color: isDark ? Colors.white : Colors.black87,
+          tooltip: 'Share',
         ),
       ],
     );
   }
 
   Widget _buildOverview() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -275,7 +372,7 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
               ),
               const SizedBox(width: CinemahubSpacing.sm),
             ],
-            if (_releaseDate != null) ...[
+            if (_releaseDate != null && _releaseDate!.isNotEmpty) ...[
               Chip(
                 label: Text(
                   _releaseDate!.length >= 4 ? _releaseDate!.substring(0, 4) : _releaseDate!,
@@ -292,7 +389,7 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
           ],
         ),
         const SizedBox(height: CinemahubSpacing.md),
-        if (_overview != null)
+        if (_overview != null && _overview!.isNotEmpty)
           Text(
             _overview!,
             style: Theme.of(context).textTheme.bodyMedium,
@@ -307,7 +404,9 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
                   (id) => Chip(
                     label: Text(_genreName(id)),
                     visualDensity: VisualDensity.compact,
-                    backgroundColor: CinemahubColors.surface(Brightness.dark),
+                    backgroundColor: isDark
+                        ? CinemahubColors.surface(Brightness.dark)
+                        : Colors.black.withValues(alpha: 0.06),
                   ),
                 )
                 .toList(),
@@ -338,13 +437,17 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
             if (validSeasons.isNotEmpty)
               DropdownButton<int>(
                 value: _selectedSeason,
-                dropdownColor: isDark ? CinemahubColors.darkSurface : CinemahubColors.lightSurface,
+                dropdownColor:
+                    isDark ? CinemahubColors.darkSurface : CinemahubColors.lightSurface,
                 underline: const SizedBox.shrink(),
                 items: validSeasons.map((s) {
                   final num = s['season_number'] as int? ?? 1;
                   return DropdownMenuItem<int>(
                     value: num,
-                    child: Text('Season $num', style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
+                    child: Text(
+                      'Season $num',
+                      style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                    ),
                   );
                 }).toList(),
                 onChanged: (s) {
@@ -368,7 +471,8 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
         else if (_episodes.isNotEmpty)
           SizedBox(
             height: 125,
-            child: ListView.separated(              scrollDirection: Axis.horizontal,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
               itemCount: _episodes.length,
               separatorBuilder: (context, index) => const SizedBox(width: 12),
               itemBuilder: (ctx, index) {
@@ -406,7 +510,8 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
                                 Image.network(
                                   'https://image.tmdb.org/t/p/w300$stillPath',
                                   fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) => Container(color: Colors.black45),
+                                  errorBuilder: (context, error, stackTrace) =>
+                                      Container(color: Colors.black45),
                                 )
                               else
                                 Container(
@@ -445,7 +550,7 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
           )
         else
           Text(
-            'Episode details loading from TMDB...',
+            'Episode details unavailable for this title.',
             style: TextStyle(color: isDark ? Colors.white54 : Colors.black45, fontSize: 12),
           ),
       ],
@@ -463,19 +568,17 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
   String _genreName(int id) => _genreMap[id] ?? 'Genre $id';
 
   Widget _buildProviderSection() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final engine = context.watch<PlaybackEngine>();
     final registry = context.watch<ProviderRegistry>();
 
-    // Combine fast direct & embed streams
     final directEmbedStreams = [
       ...engine.fmhyStreams,
       ...engine.nuvioStreams,
       ...engine.cloudStreamStreams,
     ];
-
     final magnetStreams = engine.stremioStreams;
 
-    // Pick active list according to selected category tab
     List<StreamResult> activeStreams = [];
     String emptyMessage = 'No sources found for this title';
     switch (_selectedCategoryTab) {
@@ -493,10 +596,13 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
         break;
     }
 
+    final preparedSources = activeStreams
+        .map((s) => MapEntry(s, StreamSource.fromStreamResult(s)))
+        .toList();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Section Title & Direct Play Status Badge
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -526,7 +632,7 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
                       Icon(Icons.verified_user_outlined, color: Color(0xFF10B981), size: 12),
                       SizedBox(width: 4),
                       Text(
-                        'Direct Play',
+                        'Ad-Shield & P2P',
                         style: TextStyle(
                           color: Color(0xFF10B981),
                           fontSize: 10,
@@ -550,7 +656,6 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
         ),
         const SizedBox(height: CinemahubSpacing.sm),
 
-        // Category Tabs
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Row(
@@ -583,38 +688,50 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
         ),
         const SizedBox(height: CinemahubSpacing.md),
 
-        // Streams List
         if (engine.loading)
-          const Center(
+          Center(
             child: Padding(
-              padding: EdgeInsets.symmetric(vertical: 36),
+              padding: const EdgeInsets.symmetric(vertical: 36),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  CircularProgressIndicator(color: CinemahubColors.primary),
-                  SizedBox(height: 12),
+                  const CircularProgressIndicator(color: CinemahubColors.primary),
+                  const SizedBox(height: 12),
                   Text(
                     'Searching stream providers...',
-                    style: TextStyle(color: Colors.white70, fontSize: 13),
+                    style: TextStyle(
+                      color: isDark ? Colors.white70 : Colors.black54,
+                      fontSize: 13,
+                    ),
                   ),
                 ],
               ),
             ),
           )
-        else if (activeStreams.isNotEmpty)
+        else if (preparedSources.isNotEmpty)
           ListView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            itemCount: activeStreams.length,
+            itemCount: preparedSources.length,
             itemBuilder: (context, index) {
-              final stream = activeStreams[index];
+              final entry = preparedSources[index];
               return _StreamCard(
-                stream: stream,
+                stream: entry.key,
+                source: entry.value,
                 contentTitle: widget.title,
+                contentId: widget.id,
+                imdbId: _imdbId,
+                contentType: widget.type,
+                season: widget.type == 'series' ? _selectedSeason : null,
+                episode: widget.type == 'series' ? _selectedEpisode : null,
+                posterUrl: _posterUrl,
+                releaseDate: _releaseDate,
+                rating: _rating,
                 onStreamFailed: () {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: const Text('Source failed to load. Please try another source from the list.'),
+                      content: const Text(
+                          'Source failed to load. Please try another source from the list.'),
                       behavior: SnackBarBehavior.floating,
                       backgroundColor: Colors.orange.shade800,
                       duration: const Duration(seconds: 4),
@@ -634,7 +751,10 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
                 children: [
                   Text(
                     emptyMessage,
-                    style: const TextStyle(color: Colors.white60, fontSize: 13),
+                    style: TextStyle(
+                      color: isDark ? Colors.white60 : Colors.black54,
+                      fontSize: 13,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   FilledButton.tonalIcon(
@@ -650,10 +770,15 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
     );
   }
 
-  Future<void> _fetchStreams(PlaybackEngine engine, ProviderRegistry registry, {int? season, int? episode}) async {
+  Future<void> _fetchStreams(
+    PlaybackEngine engine,
+    ProviderRegistry registry, {
+    int? season,
+    int? episode,
+  }) async {
     final s = season ?? (widget.type == 'series' ? _selectedSeason : null);
     final ep = episode ?? (widget.type == 'series' ? _selectedEpisode : null);
-    final imdbId = _meta?['imdb_id'] as String?;
+    final effectiveTmdb = _resolvedTmdbId ?? widget.tmdbId;
 
     await engine.fetchStreams(
       registry: registry,
@@ -661,8 +786,8 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
       id: widget.id,
       season: s,
       episode: ep,
-      metaImdbId: imdbId,
-      metaTmdbId: widget.tmdbId > 0 ? widget.tmdbId : null,
+      metaImdbId: _imdbId,
+      metaTmdbId: effectiveTmdb > 0 ? effectiveTmdb : null,
       title: widget.title,
     );
   }
@@ -699,7 +824,9 @@ class _CategoryTabChip extends StatelessWidget {
           border: Border.all(
             color: selected
                 ? color.withValues(alpha: 0.7)
-                : (isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.08)),
+                : (isDark
+                    ? Colors.white.withValues(alpha: 0.08)
+                    : Colors.black.withValues(alpha: 0.08)),
             width: 1.0,
           ),
         ),
@@ -710,7 +837,7 @@ class _CategoryTabChip extends StatelessWidget {
               label,
               style: TextStyle(
                 color: selected
-                    ? Colors.white
+                    ? (isDark ? Colors.white : color)
                     : (isDark ? Colors.white70 : Colors.black87),
                 fontSize: 12,
                 fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
@@ -728,8 +855,8 @@ class _CategoryTabChip extends StatelessWidget {
                 ),
                 child: Text(
                   '$count',
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black87,
                     fontSize: 10,
                     fontWeight: FontWeight.bold,
                   ),
@@ -746,24 +873,40 @@ class _CategoryTabChip extends StatelessWidget {
 class _StreamCard extends StatelessWidget {
   const _StreamCard({
     required this.stream,
+    required this.source,
     required this.contentTitle,
+    required this.contentId,
+    this.imdbId,
+    required this.contentType,
+    this.season,
+    this.episode,
+    this.posterUrl,
+    this.releaseDate,
+    this.rating,
     this.onStreamFailed,
   });
 
   final StreamResult stream;
+  final StreamSource source;
   final String contentTitle;
+  final String contentId;
+  final String? imdbId;
+  final String contentType;
+  final int? season;
+  final int? episode;
+  final String? posterUrl;
+  final String? releaseDate;
+  final double? rating;
   final VoidCallback? onStreamFailed;
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final source = StreamSource.fromStreamResult(stream);
 
     final isTorrent = source.type == StreamType.magnet;
     final isEmbed = source.type == StreamType.embed;
     final isWebsite = source.type == StreamType.website;
 
-    // Badges data
     final quality = source.quality;
     final language = source.language;
     final seeders = (isTorrent && source.seeders != null && source.seeders! > 0)
@@ -771,7 +914,6 @@ class _StreamCard extends StatelessWidget {
         : null;
     final size = source.formattedSize;
 
-    // Category accent & icon
     Color accentColor = CinemahubColors.primary;
     String typeLabel = 'DIRECT';
     IconData iconData = Icons.play_arrow_rounded;
@@ -788,10 +930,6 @@ class _StreamCard extends StatelessWidget {
       accentColor = const Color(0xFFF59E0B);
       typeLabel = 'WEB';
       iconData = Icons.open_in_browser_rounded;
-    } else {
-      accentColor = CinemahubColors.primary;
-      typeLabel = 'DIRECT';
-      iconData = Icons.play_arrow_rounded;
     }
 
     final cleanTitle = stream.description?.split('\n').first ?? source.name;
@@ -818,6 +956,14 @@ class _StreamCard extends StatelessWidget {
                 context: context,
                 source: source,
                 title: contentTitle,
+                contentId: contentId,
+                imdbId: imdbId,
+                contentType: contentType,
+                season: season,
+                episode: episode,
+                posterUrl: posterUrl,
+                releaseDate: releaseDate,
+                rating: rating,
               );
             } catch (e) {
               onStreamFailed?.call();
@@ -828,7 +974,6 @@ class _StreamCard extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // Minimal icon badge
                 Container(
                   width: 36,
                   height: 36,
@@ -839,7 +984,6 @@ class _StreamCard extends StatelessWidget {
                   child: Icon(iconData, color: accentColor, size: 20),
                 ),
                 const SizedBox(width: 12),
-                // Stream details
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -859,10 +1003,7 @@ class _StreamCard extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(width: 6),
-                          _buildBadge(
-                            label: typeLabel,
-                            color: accentColor,
-                          ),
+                          _buildBadge(label: typeLabel, color: accentColor),
                         ],
                       ),
                       const SizedBox(height: 3),
@@ -910,11 +1051,7 @@ class _StreamCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Icon(
-                  Icons.play_circle_fill_rounded,
-                  color: accentColor,
-                  size: 24,
-                ),
+                Icon(Icons.play_circle_fill_rounded, color: accentColor, size: 24),
               ],
             ),
           ),

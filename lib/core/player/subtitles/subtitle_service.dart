@@ -3,7 +3,7 @@ import 'subtitle_model.dart';
 import 'subtitle_parser.dart';
 
 /// Service for discovering, downloading, parsing, and caching subtitle tracks
-/// from Stremio Subtitle Addons, OpenSubtitles, and SubDL endpoints.
+/// from Stremio OpenSubtitles addons.
 class SubtitleService {
   SubtitleService({Dio? dio})
       : _dio = dio ??
@@ -17,9 +17,9 @@ class SubtitleService {
   /// Cache of loaded cues keyed by track URL
   final Map<String, List<CinemaSubtitleCue>> _cuesCache = {};
 
-  /// Known public Stremio subtitle addon endpoints
+  /// Public Stremio subtitle addon endpoints
   static const List<String> _subtitleAddons = [
-    'https://v3-cinemeta.strem.io',
+    'https://opensubtitles-v3.strem.io',
     'https://opensubtitles.strem.io',
   ];
 
@@ -33,7 +33,6 @@ class SubtitleService {
   }) async {
     final results = <CinemaSubtitleTrack>[];
 
-    // Include tracks provided directly by stream provider/embedded
     if (embeddedTracks != null && embeddedTracks.isNotEmpty) {
       results.addAll(embeddedTracks);
     }
@@ -44,40 +43,44 @@ class SubtitleService {
         ? '$imdbId:$season:$episode'
         : imdbId;
 
-    for (final addonBase in _subtitleAddons) {
-      try {
-        final url = '$addonBase/subtitles/$type/$targetId.json';
-        final response = await _dio.get(url);
+    await Future.wait(
+      _subtitleAddons.map((addonBase) async {
+        try {
+          final url = '$addonBase/subtitles/$type/$targetId.json';
+          final response = await _dio.get(url);
 
-        if (response.statusCode == 200 && response.data is Map) {
-          final subs = response.data['subtitles'] as List?;
-          if (subs != null) {
-            for (int i = 0; i < subs.length; i++) {
-              final item = subs[i];
-              if (item is Map && item['url'] != null) {
-                final subUrl = item['url'] as String;
-                final lang = item['lang'] as String? ?? 'en';
-                final label = item['name'] as String? ??
-                    _getLanguageLabel(lang) ??
-                    'Subtitle ${i + 1}';
+          if (response.statusCode == 200 && response.data is Map) {
+            final subs = response.data['subtitles'] as List?;
+            if (subs != null) {
+              final sourceName = addonBase.contains('opensubtitles-v3')
+                  ? 'OpenSubtitles v3'
+                  : 'OpenSubtitles';
+              for (int i = 0; i < subs.length; i++) {
+                final item = subs[i];
+                if (item is Map && item['url'] != null) {
+                  final subUrl = item['url'] as String;
+                  final lang = item['lang'] as String? ?? 'en';
+                  final label = item['name'] as String? ??
+                      _getLanguageLabel(lang) ??
+                      'Subtitle ${i + 1}';
 
-                results.add(CinemaSubtitleTrack(
-                  id: 'stremio_${lang}_${subUrl.hashCode}',
-                  label: '$label (${addonBase.contains("opensubtitles") ? "OpenSubtitles" : "Stremio"})',
-                  languageCode: lang,
-                  url: subUrl,
-                  source: addonBase.contains('opensubtitles') ? 'OpenSubtitles' : 'Stremio',
-                ));
+                  results.add(CinemaSubtitleTrack(
+                    id: 'stremio_${lang}_${subUrl.hashCode}',
+                    label: '$label ($sourceName)',
+                    languageCode: lang,
+                    url: subUrl,
+                    source: sourceName,
+                  ));
+                }
               }
             }
           }
+        } catch (_) {
+          // Skip failing subtitle addon
         }
-      } catch (_) {
-        // Silently skip failing subtitle addons
-      }
-    }
+      }),
+    );
 
-    // Deduplicate tracks by URL
     final unique = <String, CinemaSubtitleTrack>{};
     for (final track in results) {
       unique[track.url] = track;

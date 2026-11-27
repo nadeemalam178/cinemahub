@@ -8,6 +8,8 @@
     <img src="https://img.shields.io/badge/Flutter-3.13%2B-02569B?style=flat-square&logo=flutter&logoColor=white" alt="Flutter">
     <img src="https://img.shields.io/badge/Dart-3.x-0175C2?style=flat-square&logo=dart&logoColor=white" alt="Dart">
     <img src="https://img.shields.io/badge/Firebase-Auth%20%7C%20Firestore%20%7C%20Storage-FFCA28?style=flat-square&logo=firebase&logoColor=black" alt="Firebase">
+    <img src="https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-2088FF?style=flat-square&logo=github-actions&logoColor=white" alt="CI/CD">
+    <img src="https://img.shields.io/badge/OTA-Updates-success?style=flat-square" alt="OTA">
     <img src="https://img.shields.io/badge/License-Private-red?style=flat-square" alt="License">
   </p>
 
@@ -24,25 +26,29 @@
 ## ✨ Key Features
 
 ### 🎨 1. Immersive Cinematic UI & Design System
-- **Glassmorphism & Depth**: Custom glassmorphic containers (`Glass`) and tuned design tokens (`CinemahubTokens`) delivering a premium streaming box experience.
+- **Glassmorphism & Depth**: Custom glassmorphic containers (`Glass`) and tuned design tokens (`CinemahubTokens`) delivering a premium streaming experience.
 - **Adaptive Layouts**: Optimized for mobile phones, tablets, foldables, and Android TV landscapes.
 
 ### 🔐 2. Secure Access & Authentication
 - **Firebase Auth & Google Sign-In**: Secure authentication pipeline with whitelist gating for approved friends.
 - **Admin Dashboard**: Real-time user access management and platform telemetry.
 
-### 🔍 3. Rich Content Discovery
+### 🔄 3. Over-The-Air (OTA) Updates & CI/CD
+- **Automated GitHub Releases**: GitHub Actions workflow (`build.yml`) automatically builds release APKs split per ABI on tags (`v*`) and pushes rich release notes.
+- **In-App OTA Updater**: Users can check for updates directly from the **Settings** screen, download matching ABI binaries with live progress, and invoke native package installation seamlessly.
+
+### 🔍 4. Rich Content Discovery
 - **TMDB Integration**: Seamless trending movies, TV shows, genre filtering, rich cast/crew details, trailers, and similar recommendations.
 - **Offline Caching**: Robust local caching via `Drift` and `SQLite` for instant catalog browsing.
 
-### ⚡ 4. Multi-Provider Scraping Ecosystem
+### ⚡ 5. Multi-Provider Scraping Ecosystem
 - **Stremio Addon Protocol**: Full support for resolving streams from Torrentio, KnightCrawler, MediaFusion, and Comet with Real-Debrid and P2P torrent parsing.
 - **FMHY & Cloudstream Engines**: Verified embed server resolution and automated health checking (`SourceHealthChecker`).
 
-### 🍿 5. Advanced Playback Engine
+### 🍿 6. Advanced Playback Engine
 - **Native Video Player**: ExoPlayer-powered progressive & HLS (`.m3u8`) playback via Chewie with hardware acceleration.
 - **Web Embed & Adblock Player**: Sandboxed in-app WebView player with M3U8 network interception and ad-shielding.
-- **P2P Torrent Streaming**: Integrated in-app BitTorrent stream processing via `torrent_streamer`.
+- **P2P Torrent Streaming**: Integrated in-app BitTorrent stream processing via `libtorrent4j`.
 
 ---
 
@@ -56,7 +62,7 @@
 | **Networking & Caching** | Dio, CachedNetworkImage, ConnectivityPlus |
 | **Database & Storage** | SQLite, Drift, SharedPreferences, PathProvider |
 | **Backend & Services** | Firebase Core, Auth, Firestore, Storage, Messaging, Local Notifications |
-| **Media Playback** | VideoPlayer, Chewie, Flutter InAppWebView, Torrent Streamer |
+| **Media Playback** | VideoPlayer, Chewie, Flutter InAppWebView, libtorrent4j |
 
 ---
 

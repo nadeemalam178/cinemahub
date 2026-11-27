@@ -189,19 +189,19 @@ void main() {
       expect(decision.player, TargetPlayer.webPlayer);
     });
 
-    test('routes BitTorrent magnet to TorrentNotice without crashing native player', () {
+    test('routes BitTorrent magnet to NativePlayer via libtorrent4j', () {
       const source = StreamSource(
         id: '4',
         provider: 'Torrentio',
         name: 'Torrentio 1080p (24 Seeders)',
         url: 'magnet:?xt=urn:btih:1234567890abcdef&dn=Test+Movie',
         type: StreamType.magnet,
-        isPlayableInternally: false,
+        isPlayableInternally: true,
       );
 
       final decision = router.route(source);
       expect(decision.player, TargetPlayer.nativePlayer);
-      expect(decision.reason, contains('BitTorrent P2P magnet link routed to internal Torrent Streamer'));
+      expect(decision.reason, contains('BitTorrent P2P magnet link routed to internal libtorrent4j engine'));
     });
 
     test('rejects empty stream URLs as Unsupported', () {

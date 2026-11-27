@@ -45,7 +45,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadData() async {
-    setState(() => _loading = true);
+    if (_trending.isEmpty) {
+      setState(() => _loading = true);
+    }
     try {
       final results = await Future.wait([
         _catalogue.getTrending(),
@@ -141,173 +143,174 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       backgroundColor: backgroundColor,
-      body: CustomScrollView(
-        slivers: [
-          // 1. App Bar with Hero Billboard
-          SliverAppBar(
-            expandedHeight: 450,
-            pinned: true,
-            automaticallyImplyLeading: false,
-            backgroundColor: backgroundColor,
-            title: const CinemaHubLogo(size: 22, showWordmark: true),
-            actions: [
-              IconButton(
-                onPressed: () => Navigator.pushNamed(context, '/search'),
-                icon: const Icon(Icons.search_rounded),
-              ),
-            ],
-            flexibleSpace: FlexibleSpaceBar(
-              collapseMode: CollapseMode.parallax,
-              background: _HeroBillboard(items: heroItems),
-            ),
-          ),
-
-          // 2. Filter Pills (All / Movies / TV Shows)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Row(
-                children: [
-                  _FilterChip(
-                    label: 'All',
-                    selected: _selectedFilter == 0,
-                    onTap: () => setState(() => _selectedFilter = 0),
-                  ),
-                  const SizedBox(width: 8),
-                  _FilterChip(
-                    label: 'Movies',
-                    selected: _selectedFilter == 1,
-                    onTap: () => setState(() => _selectedFilter = 1),
-                  ),
-                  const SizedBox(width: 8),
-                  _FilterChip(
-                    label: 'TV Series',
-                    selected: _selectedFilter == 2,
-                    onTap: () => setState(() => _selectedFilter = 2),
-                  ),
-                ],
+      body: RefreshIndicator(
+        color: CinemahubColors.primary,
+        onRefresh: _loadData,
+        child: CustomScrollView(
+          slivers: [
+            // 1. App Bar with Hero Billboard
+            SliverAppBar(
+              expandedHeight: 450,
+              pinned: true,
+              automaticallyImplyLeading: false,
+              backgroundColor: backgroundColor,
+              title: const CinemaHubLogo(size: 22, showWordmark: true),
+              actions: [
+                IconButton(
+                  onPressed: () => Navigator.pushNamed(context, '/search'),
+                  icon: const Icon(Icons.search_rounded),
+                ),
+              ],
+              flexibleSpace: FlexibleSpaceBar(
+                collapseMode: CollapseMode.parallax,
+                background: _HeroBillboard(items: heroItems),
               ),
             ),
-          ),
 
-          // 3. Main Catalogue Shelves
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Top 10 Today Row
-                  if (_selectedFilter == 0 || _selectedFilter == 1) ...[
-                    const _SectionHeader(title: 'Top 10 Today'),
-                    _buildTop10List(_trending.take(10).toList()),
-                    const SizedBox(height: 24),
+            // 2. Filter Pills (All / Movies / TV Shows)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: Row(
+                  children: [
+                    _FilterChip(
+                      label: 'All',
+                      selected: _selectedFilter == 0,
+                      onTap: () => setState(() => _selectedFilter = 0),
+                    ),
+                    const SizedBox(width: 8),
+                    _FilterChip(
+                      label: 'Movies',
+                      selected: _selectedFilter == 1,
+                      onTap: () => setState(() => _selectedFilter = 1),
+                    ),
+                    const SizedBox(width: 8),
+                    _FilterChip(
+                      label: 'TV Series',
+                      selected: _selectedFilter == 2,
+                      onTap: () => setState(() => _selectedFilter = 2),
+                    ),
                   ],
+                ),
+              ),
+            ),
 
-                  // Trending Now
-                  const _SectionHeader(title: 'Trending Now'),
-                  _buildContentRow(_trending),
-                  const SizedBox(height: 24),
+            // 3. Main Catalogue Shelves
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Top 10 Today Row
+                    if (_selectedFilter == 0 || _selectedFilter == 1) ...[
+                      const _SectionHeader(title: 'Top 10 Today'),
+                      _buildTop10List(_trending.take(10).toList()),
+                      const SizedBox(height: 24),
+                    ],
 
-                  // Popular Movies
-                  if (_selectedFilter == 0 || _selectedFilter == 1) ...[
-                    const _SectionHeader(title: 'Popular Movies'),
-                    _buildContentRow(_popularMovies),
+                    // Trending Now
+                    const _SectionHeader(title: 'Trending Now'),
+                    _buildContentRow(_trending),
                     const SizedBox(height: 24),
-                  ],
 
-                  // Popular Series
-                  if (_selectedFilter == 0 || _selectedFilter == 2) ...[
-                    const _SectionHeader(title: 'Popular TV Series'),
-                    _buildContentRow(_popularSeries),
+                    // Popular Movies
+                    if (_selectedFilter == 0 || _selectedFilter == 1) ...[
+                      const _SectionHeader(title: 'Popular Movies'),
+                      _buildContentRow(_popularMovies),
+                      const SizedBox(height: 24),
+                    ],
+
+                    // Popular Series
+                    if (_selectedFilter == 0 || _selectedFilter == 2) ...[
+                      const _SectionHeader(title: 'Popular TV Series'),
+                      _buildContentRow(_popularSeries),
+                      const SizedBox(height: 24),
+                    ],
+
+                    // Top Rated Cinema
+                    if (_selectedFilter == 0 || _selectedFilter == 1) ...[
+                      const _SectionHeader(title: 'Top Rated'),
+                      _buildContentRow(_topRated),
+                      const SizedBox(height: 24),
+                    ],
+
+                    // Action Thrillers
+                    const _SectionHeader(title: 'Action & Adventure'),
+                    _buildContentRow(_actionMovies),
                     const SizedBox(height: 24),
-                  ],
 
-                  // Top Rated Cinema
-                  if (_selectedFilter == 0 || _selectedFilter == 1) ...[
-                    const _SectionHeader(title: 'Top Rated'),
-                    _buildContentRow(_topRated),
-                    const SizedBox(height: 24),
-                  ],
+                    // Sci-Fi & Fantasy
+                    const _SectionHeader(title: 'Sci-Fi & Fantasy'),
+                    _buildContentRow(_sciFiMovies),
+                    const SizedBox(height: 32),
 
-                  // Action Thrillers
-                  const _SectionHeader(title: 'Action & Adventure'),
-                  _buildContentRow(_actionMovies),
-                  const SizedBox(height: 24),
-
-                  // Sci-Fi & Fantasy
-                  const _SectionHeader(title: 'Sci-Fi & Fantasy'),
-                  _buildContentRow(_sciFiMovies),
-                  const SizedBox(height: 32),
-
-                  // ══════════════════════════════════════════════════════
-                  // STREMIO COMMUNITY ADDON SHELVES
-                  // ══════════════════════════════════════════════════════
-                  if (_stremioLoading)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 24),
-                      child: Center(
-                        child: Column(
+                    // STREMIO COMMUNITY ADDON SHELVES
+                    if (_stremioLoading)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 24),
+                        child: Center(
+                          child: Column(
+                            children: [
+                              CircularProgressIndicator(
+                                color: CinemahubColors.primary,
+                                strokeWidth: 2,
+                              ),
+                              SizedBox(height: 10),
+                              Text(
+                                'Curating global releases…',
+                                style: TextStyle(color: Colors.grey, fontSize: 13),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    else if (_stremioShelves.isNotEmpty) ...[
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                        child: Row(
                           children: [
-                            CircularProgressIndicator(
-                              color: CinemahubColors.primary,
-                              strokeWidth: 2,
+                            Expanded(
+                                child: Divider(
+                                    color: isDark
+                                        ? Colors.white12
+                                        : Colors.black12)),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              child: Text(
+                                'COMMUNITY SPOTLIGHT',
+                                style: TextStyle(
+                                  color: isDark ? Colors.white54 : Colors.black45,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 1.5,
+                                ),
+                              ),
                             ),
-                            SizedBox(height: 10),
-                            Text(
-                              'Curating global releases…',
-                              style:
-                                  TextStyle(color: Colors.grey, fontSize: 13),
-                            ),
+                            Expanded(
+                                child: Divider(
+                                    color: isDark
+                                        ? Colors.white12
+                                        : Colors.black12)),
                           ],
                         ),
                       ),
-                    )
-                  else if (_stremioShelves.isNotEmpty) ...[
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                      child: Row(
-                        children: [
-                          Expanded(
-                              child: Divider(
-                                  color: isDark
-                                      ? Colors.white12
-                                      : Colors.black12)),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            child: Text(
-                              'COMMUNITY SPOTLIGHT',
-                              style: TextStyle(
-                                color: isDark ? Colors.white54 : Colors.black45,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 1.5,
-                              ),
-                            ),
-                          ),
-                          Expanded(
-                              child: Divider(
-                                  color: isDark
-                                      ? Colors.white12
-                                      : Colors.black12)),
-                        ],
-                      ),
-                    ),
-                    for (final shelf in _stremioShelves) ...[
-                      _StremioShelfHeader(
-                        label: shelf.label,
-                        source: shelf.source,
-                      ),
-                      _buildStremioRow(shelf.items),
-                      const SizedBox(height: 24),
+                      for (final shelf in _stremioShelves) ...[
+                        _StremioShelfHeader(
+                          label: shelf.label,
+                          source: shelf.source,
+                        ),
+                        _buildStremioRow(shelf.items),
+                        const SizedBox(height: 24),
+                      ],
+                      const SizedBox(height: 16),
                     ],
-                    const SizedBox(height: 16),
                   ],
-                ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -836,9 +839,6 @@ class MovieCard extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Stremio shelf header widget
-// ---------------------------------------------------------------------------
 class _StremioShelfHeader extends StatelessWidget {
   const _StremioShelfHeader({required this.label, required this.source});
   final String label;
@@ -897,9 +897,6 @@ class _StremioShelfHeader extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Stremio content card with shimmer
-// ---------------------------------------------------------------------------
 class _StremioCard extends StatelessWidget {
   const _StremioCard({required this.item});
   final Map<String, dynamic> item;

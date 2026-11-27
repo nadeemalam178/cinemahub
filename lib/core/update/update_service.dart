@@ -30,12 +30,14 @@ class UpdateInfo {
 }
 
 /// Service handling Over-The-Air (OTA) updates by querying GitHub Releases,
-/// downloading APKs in-app with live progress, and invoking the native Android package installer.
+/// selecting the matching device ABI APK, downloading with progress, and invoking
+/// the native Android package installer.
 class UpdateService extends ChangeNotifier {
   UpdateService({Dio? dio}) : _dio = dio ?? Dio();
 
   final Dio _dio;
-  static const MethodChannel _installerChannel = MethodChannel('com.cinemahub.app/installer');
+  static const MethodChannel _installerChannel =
+      MethodChannel('com.cinemahub.app/installer');
 
   bool _checking = false;
   bool get checking => _checking;
@@ -43,13 +45,55 @@ class UpdateService extends ChangeNotifier {
   UpdateInfo? _latestUpdate;
   UpdateInfo? get latestUpdate => _latestUpdate;
 
-  // Live in-app download state
   bool _downloading = false;
   bool get downloading => _downloading;
   double _downloadProgress = 0.0;
   double get downloadProgress => _downloadProgress;
   String? _downloadedApkPath;
   String? get downloadedApkPath => _downloadedApkPath;
+  String? _lastInstallError;
+  String? get lastInstallError => _lastInstallError;
+
+  Future<List<String>> _getSupportedAbis() async {
+    try {
+      final abis = await _installerChannel.invokeListMethod<String>('getSupportedAbis');
+      if (abis != null && abis.isNotEmpty) return abis;
+    } catch (_) {}
+    return const ['arm64-v8a', 'armeabi-v7a', 'x86_64'];
+  }
+
+  /// Selects the best matching APK asset from a GitHub Release asset list
+  /// based on the device's supported ABIs.
+  static Map<String, dynamic>? pickApkAsset(
+    List<dynamic> assets,
+    List<String> supportedAbis,
+  ) {
+    final apkAssets = assets
+        .whereType<Map>()
+        .map((a) => Map<String, dynamic>.from(a))
+        .where((a) => (a['name'] as String? ?? '').toLowerCase().endsWith('.apk'))
+        .toList();
+    if (apkAssets.isEmpty) return null;
+
+    for (final abi in supportedAbis) {
+      final lowerAbi = abi.toLowerCase();
+      for (final asset in apkAssets) {
+        final name = (asset['name'] as String? ?? '').toLowerCase();
+        if (name.contains(lowerAbi)) {
+          return asset;
+        }
+      }
+    }
+
+    for (final asset in apkAssets) {
+      final name = (asset['name'] as String? ?? '').toLowerCase();
+      if (name.contains('universal') || name == 'app-release.apk') {
+        return asset;
+      }
+    }
+
+    return apkAssets.first;
+  }
 
   /// Check GitHub releases for an update.
   Future<UpdateInfo?> checkForUpdate({String repo = 'nadeemalam178/cinemahub'}) async {
@@ -60,7 +104,8 @@ class UpdateService extends ChangeNotifier {
       final packageInfo = await PackageInfo.fromPlatform();
       final currentVersion = packageInfo.version;
       final currentBuild = packageInfo.buildNumber;
-      final localFull = currentBuild.isNotEmpty ? '$currentVersion+$currentBuild' : currentVersion;
+      final localFull =
+          currentBuild.isNotEmpty ? '$currentVersion+$currentBuild' : currentVersion;
 
       final response = await _dio.get(
         'https://api.github.com/repos/$repo/releases/latest',
@@ -81,20 +126,19 @@ class UpdateService extends ChangeNotifier {
 
       final data = response.data as Map<String, dynamic>;
       final rawTag = cleanVersion((data['tag_name'] as String? ?? ''));
-      final releaseNotes = data['body'] as String? ?? 'A new version of CinemaHub is available with performance and streaming upgrades.';
-      final releaseUrl = data['html_url'] as String? ?? 'https://github.com/$repo/releases';
+      final releaseNotes = data['body'] as String? ??
+          'A new version of CinemaHub is available with performance and streaming upgrades.';
+      final releaseUrl =
+          data['html_url'] as String? ?? 'https://github.com/$repo/releases';
 
-      // Find the direct APK asset URL
       String apkUrl = releaseUrl;
       int? apkSize;
       final assets = data['assets'] as List<dynamic>? ?? [];
-      for (final asset in assets) {
-        final name = asset['name'] as String? ?? '';
-        if (name.endsWith('.apk')) {
-          apkUrl = asset['browser_download_url'] as String? ?? releaseUrl;
-          apkSize = (asset['size'] as num?)?.toInt();
-          break;
-        }
+      final abis = await _getSupportedAbis();
+      final bestAsset = pickApkAsset(assets, abis);
+      if (bestAsset != null) {
+        apkUrl = bestAsset['browser_download_url'] as String? ?? releaseUrl;
+        apkSize = (bestAsset['size'] as num?)?.toInt();
       }
 
       final hasUpdate = isNewer(rawTag, localFull);
@@ -120,7 +164,6 @@ class UpdateService extends ChangeNotifier {
     }
   }
 
-  /// Cleans version string of leading 'v' or 'V' and spaces
   static String cleanVersion(String version) {
     return version.trim().replaceAll(RegExp(r'^[vV]'), '');
   }
@@ -134,8 +177,10 @@ class UpdateService extends ChangeNotifier {
       final remoteBase = sanitizedRemote.split('+').first.split('-').first;
       final localBase = sanitizedLocal.split('+').first.split('-').first;
 
-      final remoteParts = remoteBase.split('.').map((e) => int.tryParse(e) ?? 0).toList();
-      final localParts = localBase.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+      final remoteParts =
+          remoteBase.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+      final localParts =
+          localBase.split('.').map((e) => int.tryParse(e) ?? 0).toList();
 
       while (remoteParts.length < 3) {
         remoteParts.add(0);
@@ -149,7 +194,6 @@ class UpdateService extends ChangeNotifier {
         if (remoteParts[i] < localParts[i]) return false;
       }
 
-      // Base versions match: check build numbers if available
       final remoteHasBuild = sanitizedRemote.contains('+');
       final localHasBuild = sanitizedLocal.contains('+');
 
@@ -159,14 +203,12 @@ class UpdateService extends ChangeNotifier {
         return remoteBuild > localBuild;
       }
 
-      // If remote does not have a higher build number and bases are identical, it is NOT newer
       return false;
     } catch (_) {
       return false;
     }
   }
 
-  /// Downloads the APK directly into local cache with progress callback and triggers native installation.
   Future<void> downloadAndInstallApk({
     required String url,
     required void Function(double progress, int received, int total) onProgress,
@@ -175,6 +217,7 @@ class UpdateService extends ChangeNotifier {
   }) async {
     _downloading = true;
     _downloadProgress = 0.0;
+    _lastInstallError = null;
     notifyListeners();
 
     try {
@@ -205,14 +248,12 @@ class UpdateService extends ChangeNotifier {
 
       onCompleted(savePath);
 
-      // Trigger native Android installation
       await installApk(savePath);
     } catch (e) {
       _downloading = false;
       notifyListeners();
       debugPrint('In-app APK download error: $e');
       onError(e.toString());
-      // Fallback: open in external browser
       final uri = Uri.tryParse(url);
       if (uri != null && await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -222,16 +263,24 @@ class UpdateService extends ChangeNotifier {
 
   /// Invokes the native Kotlin installer channel to prompt Android PackageInstaller
   Future<bool> installApk(String filePath) async {
+    _lastInstallError = null;
     try {
-      final result = await _installerChannel.invokeMethod<bool>('installApk', {'filePath': filePath});
+      final result = await _installerChannel
+          .invokeMethod<bool>('installApk', {'filePath': filePath});
       return result ?? false;
+    } on PlatformException catch (e) {
+      _lastInstallError = e.message ?? e.code;
+      notifyListeners();
+      debugPrint('Native install channel error: ${e.code} ${e.message}');
+      return false;
     } catch (e) {
+      _lastInstallError = e.toString();
+      notifyListeners();
       debugPrint('Native install channel error: $e');
       return false;
     }
   }
 
-  /// Shows a modern glassmorphic, structured update dialog with in-app download & install.
   Future<void> showUpdateDialog(BuildContext context, UpdateInfo update) async {
     await showDialog(
       context: context,
@@ -306,7 +355,9 @@ class _ModernOtaUpdateDialogState extends State<_ModernOtaUpdateDialog> {
           _downloading = false;
           _downloadedPath = path;
           _progress = 1.0;
-          _statusText = 'Download complete! Tap Install.';
+          _statusText = widget.updateService.lastInstallError ??
+              'Download complete! Tap Install.';
+          _errorMessage = widget.updateService.lastInstallError;
         });
       },
     );
@@ -344,7 +395,6 @@ class _ModernOtaUpdateDialogState extends State<_ModernOtaUpdateDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header
             Row(
               children: [
                 Container(
@@ -364,7 +414,8 @@ class _ModernOtaUpdateDialogState extends State<_ModernOtaUpdateDialog> {
                       ),
                     ],
                   ),
-                  child: const Icon(Icons.rocket_launch_rounded, color: Colors.white, size: 26),
+                  child: const Icon(Icons.rocket_launch_rounded,
+                      color: Colors.white, size: 26),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -384,11 +435,14 @@ class _ModernOtaUpdateDialogState extends State<_ModernOtaUpdateDialog> {
                       Row(
                         children: [
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2),
                             decoration: BoxDecoration(
                               color: CinemahubColors.gold.withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: CinemahubColors.gold.withValues(alpha: 0.4)),
+                              border: Border.all(
+                                  color: CinemahubColors.gold
+                                      .withValues(alpha: 0.4)),
                             ),
                             child: Text(
                               'v${widget.update.latestVersion}',
@@ -402,12 +456,14 @@ class _ModernOtaUpdateDialogState extends State<_ModernOtaUpdateDialog> {
                           const SizedBox(width: 8),
                           Text(
                             'Current: v${widget.update.currentVersion}',
-                            style: const TextStyle(color: Colors.white54, fontSize: 11),
+                            style: const TextStyle(
+                                color: Colors.white54, fontSize: 11),
                           ),
                           const Spacer(),
                           Text(
                             sizeMb,
-                            style: const TextStyle(color: Colors.white38, fontSize: 11),
+                            style: const TextStyle(
+                                color: Colors.white38, fontSize: 11),
                           ),
                         ],
                       ),
@@ -417,11 +473,10 @@ class _ModernOtaUpdateDialogState extends State<_ModernOtaUpdateDialog> {
               ],
             ),
             const SizedBox(height: 18),
-
-            // Changelog Title
             const Row(
               children: [
-                Icon(Icons.auto_awesome_rounded, color: CinemahubColors.gold, size: 16),
+                Icon(Icons.auto_awesome_rounded,
+                    color: CinemahubColors.gold, size: 16),
                 SizedBox(width: 6),
                 Text(
                   'What\'s New in This Version',
@@ -434,8 +489,6 @@ class _ModernOtaUpdateDialogState extends State<_ModernOtaUpdateDialog> {
               ],
             ),
             const SizedBox(height: 8),
-
-            // Clean Formatted Changelog Container
             Container(
               constraints: const BoxConstraints(maxHeight: 200),
               width: double.infinity,
@@ -457,7 +510,6 @@ class _ModernOtaUpdateDialogState extends State<_ModernOtaUpdateDialog> {
                 ),
               ),
             ),
-
             if (_errorMessage != null) ...[
               const SizedBox(height: 8),
               Text(
@@ -465,10 +517,7 @@ class _ModernOtaUpdateDialogState extends State<_ModernOtaUpdateDialog> {
                 style: const TextStyle(color: Colors.redAccent, fontSize: 12),
               ),
             ],
-
             const SizedBox(height: 18),
-
-            // Download Progress Bar (When downloading or complete)
             if (_downloading || _downloadedPath != null) ...[
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
@@ -476,7 +525,8 @@ class _ModernOtaUpdateDialogState extends State<_ModernOtaUpdateDialog> {
                   value: _progress,
                   minHeight: 6,
                   backgroundColor: Colors.white10,
-                  valueColor: const AlwaysStoppedAnimation<Color>(CinemahubColors.primary),
+                  valueColor: const AlwaysStoppedAnimation<Color>(
+                      CinemahubColors.primary),
                 ),
               ),
               const SizedBox(height: 6),
@@ -486,42 +536,53 @@ class _ModernOtaUpdateDialogState extends State<_ModernOtaUpdateDialog> {
               ),
               const SizedBox(height: 14),
             ],
-
-            // Action Buttons
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Later', style: TextStyle(color: Colors.white60)),
+                  child: const Text('Later',
+                      style: TextStyle(color: Colors.white60)),
                 ),
                 const SizedBox(width: 8),
                 if (_downloadedPath != null)
                   FilledButton.icon(
                     style: FilledButton.styleFrom(
                       backgroundColor: Colors.green,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 18, vertical: 12),
                     ),
-                    onPressed: () {
-                      widget.updateService.installApk(_downloadedPath!);
+                    onPressed: () async {
+                      final ok =
+                          await widget.updateService.installApk(_downloadedPath!);
+                      if (!ok && mounted) {
+                        setState(() {
+                          _errorMessage = widget.updateService.lastInstallError;
+                        });
+                      }
                     },
                     icon: const Icon(Icons.install_mobile_rounded, size: 18),
-                    label: const Text('Install Now', style: TextStyle(fontWeight: FontWeight.bold)),
+                    label: const Text('Install Now',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
                   )
                 else
                   FilledButton.icon(
                     style: FilledButton.styleFrom(
                       backgroundColor: CinemahubColors.primary,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 18, vertical: 12),
                     ),
                     onPressed: _downloading ? null : _startDownload,
                     icon: _downloading
                         ? const SizedBox(
                             width: 16,
                             height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white),
                           )
                         : const Icon(Icons.download_rounded, size: 18),
                     label: Text(
@@ -541,7 +602,6 @@ class _ModernOtaUpdateDialogState extends State<_ModernOtaUpdateDialog> {
     if (raw.trim().isEmpty) {
       return '• Performance improvements and bug fixes.\n• Enhanced streaming stability and zero-ad playback.';
     }
-    // Clean up GitHub markdown hashes and bullet points for display
     final lines = raw.split('\n');
     final formatted = <String>[];
     for (final line in lines) {

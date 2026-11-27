@@ -8,13 +8,10 @@ import 'provider_model.dart';
 /// Registry of authorised content providers.
 ///
 /// Responsibilities:
-///  * Load the allow-list from Firestore (`providers` collection).
+///  * Load the allow-list from Firestore (`providers` collection) once approved.
 ///  * Expose only providers whose `enabled` flag is true.
 ///  * Order providers by priority for the playback engine.
-///  * Forward enable/disable toggles from the admin dashboard.
-///
-/// Security: a client can never create or promote a provider — the allow-list
-/// is server-side and enforced by Firestore rules.
+///  * Support resetting & retrying when auth state changes.
 class ProviderRegistry extends ChangeNotifier {
   ProviderRegistry({FirebaseFirestore? firestore})
     : _firestoreInstance = firestore;
@@ -25,6 +22,8 @@ class ProviderRegistry extends ChangeNotifier {
   final Map<String, ProviderModel> _providers = {};
   StreamSubscription? _sub;
   bool _loaded = false;
+  bool _loading = false;
+  String? _error;
 
   /// All providers currently known (enabled or disabled).
   Map<String, ProviderModel> get all => Map.unmodifiable(_providers);
@@ -37,30 +36,55 @@ class ProviderRegistry extends ChangeNotifier {
   /// Whether the allow-list has been fetched from Firestore.
   bool get loaded => _loaded;
 
+  /// Last stream error, if any.
+  String? get error => _error;
+
   /// Load the provider allow-list and subscribe to live changes.
   void load() {
-    if (_loaded) return;
-    _loaded = true;
+    if (_sub != null || _loading) return;
+    _loading = true;
+    _error = null;
     _sub = _firestore.collection('providers').snapshots().listen(
       (snap) {
+        _loaded = true;
+        _loading = false;
+        _error = null;
         for (final doc in snap.docs) {
           _providers[doc.id] = ProviderModel.fromFirestore(doc.id, doc.data());
         }
-        // Remove providers that were deleted server-side.
         _providers.removeWhere(
           (key, _) => !snap.docs.any((d) => d.id == key),
         );
         notifyListeners();
       },
-      onError: (e) => debugPrint('ProviderRegistry stream error: $e'),
+      onError: (e) {
+        debugPrint('ProviderRegistry stream error: $e');
+        _loaded = false;
+        _loading = false;
+        _error = e.toString();
+        _sub?.cancel();
+        _sub = null;
+        notifyListeners();
+      },
     );
+  }
+
+  /// Cancel active subscription and clear cached providers (e.g., on sign-out).
+  void reset() {
+    _sub?.cancel();
+    _sub = null;
+    _loaded = false;
+    _loading = false;
+    _error = null;
+    _providers.clear();
+    notifyListeners();
   }
 
   /// Look up a provider by id.
   ProviderModel? byId(String id) => _providers[id];
 
   /// Find a provider that supports the given content type and (optionally)
-  /// a specific resource. Falls back to any enabled provider.
+  /// a specific resource.
   ProviderModel? find({
     required ContentType type,
     String? id,

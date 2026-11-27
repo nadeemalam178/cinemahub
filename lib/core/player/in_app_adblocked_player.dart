@@ -1,12 +1,14 @@
+import 'dart:collection';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:webview_flutter/webview_flutter.dart';
-import 'package:webview_flutter_android/webview_flutter_android.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import '../theme/cinemahub_colors.dart';
 import 'adblock_engine.dart';
 
-/// In-App Web Player using official webview_flutter with uBlock Origin isolation rules & sandboxed iframe shield.
+/// In-App Web Player backed by `flutter_inappwebview` with native ContentBlockers,
+/// multi-frame anti-ad/anti-popunder UserScripts, and optional sandboxed iframe shield.
 class InAppAdBlockedPlayer extends StatefulWidget {
   const InAppAdBlockedPlayer({
     super.key,
@@ -24,67 +26,64 @@ class InAppAdBlockedPlayer extends StatefulWidget {
 }
 
 class _InAppAdBlockedPlayerState extends State<InAppAdBlockedPlayer> {
-  late final WebViewController _controller;
+  InAppWebViewController? _controller;
   bool _loading = true;
   double _progress = 0;
   bool _isFullScreen = false;
-  bool _useSandboxedShield = false; // Default to direct load so video embeds get true origin, referer & DOM storage
+  bool _useSandboxedShield = false;
+
+  late final InAppWebViewSettings _settings;
+  late final UnmodifiableListView<UserScript> _userScripts;
+
+  static const String _defaultUserAgent =
+      'Mozilla/5.0 (Linux; Android 13; Pixel 7 Pro) AppleWebKit/537.36 '
+      '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
 
   @override
   void initState() {
     super.initState();
-    _initWebView();
+    _settings = InAppWebViewSettings(
+      javaScriptEnabled: true,
+      javaScriptCanOpenWindowsAutomatically: false,
+      supportMultipleWindows: true,
+      mediaPlaybackRequiresUserGesture: false,
+      allowsInlineMediaPlayback: true,
+      useShouldOverrideUrlLoading: true,
+      contentBlockers: AdBlockEngine.buildInAppContentBlockers(),
+      userAgent: _defaultUserAgent,
+      thirdPartyCookiesEnabled: true,
+      domStorageEnabled: true,
+      databaseEnabled: true,
+      mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
+      supportZoom: false,
+    );
+
+    _userScripts = UnmodifiableListView<UserScript>([
+      UserScript(
+        source: AdBlockEngine.antiAdScript,
+        injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+        forMainFrameOnly: false,
+      ),
+    ]);
   }
 
-  void _initWebView() {
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setUserAgent(
-        'Mozilla/5.0 (Linux; Android 13; Pixel 7 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-      )
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onProgress: (progress) {
-            if (mounted) {
-              setState(() {
-                _progress = progress / 100;
-                if (progress >= 85) _loading = false;
-              });
-            }
-          },
-          onPageFinished: (url) async {
-            if (mounted) setState(() => _loading = false);
-            // Inject anti-ad & popup neutralizing scripts
-            try {
-              await _controller.runJavaScript(AdBlockEngine.antiAdScript);
-            } catch (_) {}
-          },
-          onNavigationRequest: (request) {
-            // Never block initial target URL
-            if (request.url == widget.url) {
-              return NavigationDecision.navigate;
-            }
-            if (AdBlockEngine.shouldBlockUrl(request.url)) {
-              debugPrint('[CinemaHub Blocked Ad URL]: ${request.url}');
-              return NavigationDecision.prevent;
-            }
-            return NavigationDecision.navigate;
-          },
-        ),
-      );
-
-    // Platform-specific optimizations for Android WebView
-    if (_controller.platform is AndroidWebViewController) {
-      final androidController = _controller.platform as AndroidWebViewController;
-      androidController.setMediaPlaybackRequiresUserGesture(false);
+  Map<String, String> _headersFor(String rawUrl) {
+    final uri = Uri.tryParse(rawUrl);
+    if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+      return const {'User-Agent': _defaultUserAgent};
     }
-
-    _loadContent();
+    return {
+      'Referer': '${uri.scheme}://${uri.host}/',
+      'Origin': '${uri.scheme}://${uri.host}',
+      'User-Agent': _defaultUserAgent,
+    };
   }
 
   void _loadContent() {
+    final controller = _controller;
+    if (controller == null) return;
+
     if (_useSandboxedShield) {
-      // Sandboxed Iframe fallback if explicitly toggled by user
       final html = '''
 <!DOCTYPE html>
 <html>
@@ -114,17 +113,16 @@ class _InAppAdBlockedPlayerState extends State<InAppAdBlockedPlayer> {
 </body>
 </html>
 ''';
-      _controller.loadHtmlString(html);
+      controller.loadData(
+        data: html,
+        baseUrl: WebUri(widget.url),
+      );
     } else {
-      // Direct load gives the embed player legitimate Origin, Referer, and full access to media decoders & DOMStorage
-      final uri = Uri.parse(widget.url);
-      final referer = '${uri.scheme}://${uri.host}/';
-      _controller.loadRequest(
-        uri,
-        headers: {
-          'Referer': referer,
-          'Origin': '${uri.scheme}://${uri.host}',
-        },
+      controller.loadUrl(
+        urlRequest: URLRequest(
+          url: WebUri(widget.url),
+          headers: _headersFor(widget.url),
+        ),
       );
     }
   }
@@ -138,6 +136,9 @@ class _InAppAdBlockedPlayerState extends State<InAppAdBlockedPlayer> {
       DeviceOrientation.landscapeRight,
     ]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    try {
+      _controller?.loadUrl(urlRequest: URLRequest(url: WebUri('about:blank')));
+    } catch (_) {}
     super.dispose();
   }
 
@@ -170,6 +171,8 @@ class _InAppAdBlockedPlayerState extends State<InAppAdBlockedPlayer> {
 
   @override
   Widget build(BuildContext context) {
+    final targetUri = Uri.tryParse(widget.url);
+
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
@@ -177,17 +180,59 @@ class _InAppAdBlockedPlayerState extends State<InAppAdBlockedPlayer> {
         bottom: !_isFullScreen,
         child: Stack(
           children: [
-            // 1. WebView
-            WebViewWidget(controller: _controller),
+            InAppWebView(
+              initialUrlRequest: URLRequest(
+                url: WebUri(widget.url),
+                headers: _headersFor(widget.url),
+              ),
+              initialSettings: _settings,
+              initialUserScripts: _userScripts,
+              onWebViewCreated: (controller) {
+                _controller = controller;
+              },
+              onProgressChanged: (controller, progress) {
+                if (mounted) {
+                  setState(() {
+                    _progress = progress / 100.0;
+                    if (progress >= 85) _loading = false;
+                  });
+                }
+              },
+              onLoadStop: (controller, url) {
+                if (mounted) setState(() => _loading = false);
+              },
+              onCreateWindow: (controller, createWindowAction) async {
+                return false;
+              },
+              shouldOverrideUrlLoading: (controller, navigationAction) async {
+                final reqUrl = navigationAction.request.url?.toString() ?? '';
+                if (reqUrl.isEmpty || reqUrl == widget.url) {
+                  return NavigationActionPolicy.ALLOW;
+                }
+                if (AdBlockEngine.shouldBlockUrl(reqUrl)) {
+                  return NavigationActionPolicy.CANCEL;
+                }
+                if (navigationAction.isForMainFrame && targetUri != null) {
+                  final reqHost = navigationAction.request.url?.host.toLowerCase() ?? '';
+                  final baseHost = targetUri.host.toLowerCase().replaceFirst('www.', '');
+                  final sameSite = reqHost == baseHost ||
+                      reqHost.endsWith('.$baseHost') ||
+                      baseHost.endsWith('.$reqHost');
+                  if (!sameSite) {
+                    return NavigationActionPolicy.CANCEL;
+                  }
+                }
+                return NavigationActionPolicy.ALLOW;
+              },
+            ),
 
-            // 2. Loading Indicator & Progress Bar
             if (_loading) ...[
               Positioned(
                 top: 0,
                 left: 0,
                 right: 0,
                 child: LinearProgressIndicator(
-                  value: _progress,
+                  value: _progress > 0 ? _progress : null,
                   backgroundColor: Colors.black54,
                   valueColor: const AlwaysStoppedAnimation<Color>(CinemahubColors.primary),
                   minHeight: 3,
@@ -207,7 +252,7 @@ class _InAppAdBlockedPlayerState extends State<InAppAdBlockedPlayer> {
                       CircularProgressIndicator(color: CinemahubColors.primary),
                       SizedBox(height: 12),
                       Text(
-                        '🛡️ Isolating ads & streaming...',
+                        'Isolating ads & streaming...',
                         style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600),
                       ),
                     ],
@@ -216,7 +261,6 @@ class _InAppAdBlockedPlayerState extends State<InAppAdBlockedPlayer> {
               ),
             ],
 
-            // 3. Top Floating Glass Header
             Positioned(
               top: 8,
               left: 8,
@@ -283,7 +327,6 @@ class _InAppAdBlockedPlayerState extends State<InAppAdBlockedPlayer> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  // Shield Mode Toggle
                   Container(
                     decoration: BoxDecoration(
                       color: Colors.black.withValues(alpha: 0.65),
@@ -301,7 +344,6 @@ class _InAppAdBlockedPlayerState extends State<InAppAdBlockedPlayer> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  // Fullscreen button
                   Container(
                     decoration: BoxDecoration(
                       color: Colors.black.withValues(alpha: 0.65),

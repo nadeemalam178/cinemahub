@@ -12,7 +12,7 @@ import '../providers/stremio_adapter.dart';
 import '../providers/stremio_torrent_scraper.dart';
 import '../streaming/diagnostics/streaming_logger.dart';
 
-/// Multi-provider playback engine: FMHY 28+ Servers + Stremio Addons + Nuvio Plugins + CloudStream.
+/// Multi-provider playback engine: FMHY Servers + Stremio Addons + Nuvio Plugins + CloudStream.
 class PlaybackEngine extends ChangeNotifier {
   PlaybackEngine({
     required this.adapter,
@@ -37,7 +37,6 @@ class PlaybackEngine extends ChangeNotifier {
   List<StreamResult> _currentStreams = [];
   List<StreamResult> get currentStreams => _currentStreams;
 
-  // Categorized stream accessors
   List<StreamResult> get fmhyStreams => _currentStreams
       .where((s) => s.behaviorHints?['category'] == 'fmhy')
       .toList();
@@ -63,7 +62,6 @@ class PlaybackEngine extends ChangeNotifier {
   String? _cachedRdKey;
   List<String>? _cachedCustomAddons;
 
-  /// Update cached Real-Debrid and community addons
   void updateDebridConfig({String? realDebridKey, List<String>? customAddons}) {
     if (realDebridKey != null) _cachedRdKey = realDebridKey;
     if (customAddons != null) _cachedCustomAddons = customAddons;
@@ -90,8 +88,8 @@ class PlaybackEngine extends ChangeNotifier {
     final allStreams = <StreamResult>[];
     final errors = <String>[];
     final isMovie = type == ContentType.movie;
+    final stremioType = isMovie ? 'movie' : 'series';
 
-    // Load any saved Real-Debrid API key from SharedPreferences if not provided explicitly
     String? effectiveRdKey = realDebridKey ?? _cachedRdKey;
     List<String>? effectiveCustomAddons = customAddonUrls ?? _cachedCustomAddons;
     if (effectiveRdKey == null || effectiveCustomAddons == null) {
@@ -151,7 +149,7 @@ class PlaybackEngine extends ChangeNotifier {
         if (cleanImdb.isNotEmpty) {
           try {
             final torrents = await _torrentScraper.fetchAllTorrentStreams(
-              type: isMovie ? 'movie' : 'series',
+              type: stremioType,
               imdbId: cleanImdb,
               season: season,
               episode: episode,
@@ -174,12 +172,13 @@ class PlaybackEngine extends ChangeNotifier {
             'stremio_resolve',
             statusCode: 404,
             streamCount: 0,
-            error: 'No IMDb ID resolved for content "$id" (${title ?? 'untitled'}); Stremio querying skipped.',
+            error:
+                'No IMDb ID resolved for content "$id" (${title ?? 'untitled'}); Stremio querying skipped.',
           );
         }
       }),
 
-      // Category 3: Nuvio Plugins (nuvioplugin.com)
+      // Category 3: Nuvio Plugins
       Future(() async {
         try {
           final nuvio = await _nuvioEngine.fetchStreams(
@@ -212,36 +211,61 @@ class PlaybackEngine extends ChangeNotifier {
       }),
     ]);
 
-    // 3. Fallback to registered custom providers if provided
-    if (registry != null) {
-      final enabledProviders = registry.enabled;
-      for (final provider in enabledProviders) {
-        final streams = await _tryProvider(
-          provider: provider,
-          type: type,
-          id: id,
-          season: season,
-          episode: episode,
-          errors: errors,
-        );
-        if (streams.isNotEmpty) {
-          allStreams.addAll(streams);
-        }
-      }
+    // 3. Query registered Firestore providers in parallel with resolved IMDb/TMDB ID
+    if (registry != null && registry.enabled.isNotEmpty) {
+      final targetId = cleanImdb.isNotEmpty
+          ? cleanImdb
+          : (cleanTmdb.isNotEmpty ? 'tmdb:$cleanTmdb' : id);
+      await Future.wait(
+        registry.enabled.map((provider) async {
+          final streams = await _tryProvider(
+            provider: provider,
+            type: stremioType,
+            id: targetId,
+            season: season,
+            episode: episode,
+            errors: errors,
+          );
+          if (streams.isNotEmpty) {
+            allStreams.addAll(streams);
+          }
+        }),
+      );
     }
 
-    if (allStreams.isEmpty && errors.isNotEmpty) {
+    // 4. Propagate content identifiers to every stream so subtitles & sync always work
+    final enriched = allStreams.map((s) {
+      final hints = Map<String, dynamic>.from(s.behaviorHints ?? const {});
+      if (cleanImdb.isNotEmpty) hints.putIfAbsent('imdb_id', () => cleanImdb);
+      if (cleanTmdb.isNotEmpty) hints.putIfAbsent('tmdb_id', () => cleanTmdb);
+      hints.putIfAbsent('type', () => stremioType);
+      if (season != null) hints.putIfAbsent('season', () => season);
+      if (episode != null) hints.putIfAbsent('episode', () => episode);
+      return StreamResult(
+        name: s.name,
+        url: s.url,
+        type: s.type,
+        hash: s.hash,
+        size: s.size,
+        fileIndex: s.fileIndex,
+        description: s.description,
+        behaviorHints: hints,
+        subtitles: s.subtitles,
+      );
+    }).toList();
+
+    if (enriched.isEmpty && errors.isNotEmpty) {
       _error = errors.last;
     }
 
-    _currentStreams = allStreams;
+    _currentStreams = enriched;
     _loading = false;
     notifyListeners();
   }
 
   Future<List<StreamResult>> _tryProvider({
     required ProviderModel provider,
-    required ContentType type,
+    required String type,
     required String id,
     int? season,
     int? episode,
@@ -256,10 +280,11 @@ class PlaybackEngine extends ChangeNotifier {
     try {
       final streams = await adapter.fetchStreams(
         baseUrl: baseUrl,
-        type: type.name,
+        type: type,
         id: id,
         season: season,
         episode: episode,
+        addonName: provider.name,
       );
       return streams;
     } catch (e) {

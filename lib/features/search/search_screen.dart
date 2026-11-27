@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -5,8 +7,8 @@ import 'package:provider/provider.dart';
 import '../../core/catalogue/catalogue_service.dart';
 import '../../core/theme/cinemahub_colors.dart';
 
-/// Futuristic Search Screen with live multi-category filtering,
-/// high-density responsive poster grid, and smooth vertical scrolling.
+/// Search Screen with debounced race-safe search, category filtering,
+/// and responsive 3-column poster grid.
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
 
@@ -20,13 +22,17 @@ class _SearchScreenState extends State<SearchScreen> {
 
   String _query = '';
   bool _loading = false;
+  String? _error;
+  Timer? _debounce;
+  int _searchSeq = 0;
+
   List<Map<String, dynamic>> _movies = [];
   List<Map<String, dynamic>> _series = [];
 
   // Filter: 0 = All, 1 = Movies, 2 = Series
   int _selectedFilter = 0;
 
-  final List<String> _quickSearches = [
+  final List<String> _quickSearches = const [
     'Cyberpunk',
     'Sci-Fi',
     'Anime',
@@ -37,36 +43,49 @@ class _SearchScreenState extends State<SearchScreen> {
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
   }
 
   void _onSearchChanged(CatalogueService catalogue, String value) {
-    setState(() => _query = value);
-    if (value.trim().isNotEmpty) {
-      setState(() => _loading = true);
-      catalogue.search(
-        query: value.trim(),
-        onMovies: (movies) {
-          if (!mounted) return;
-          setState(() => _movies = movies);
-        },
-        onSeries: (series) {
-          if (!mounted) return;
-          setState(() {
-            _series = series;
-            _loading = false;
-          });
-        },
-      );
-    } else {
-      setState(() {
+    _debounce?.cancel();
+    final seq = ++_searchSeq;
+    final trimmed = value.trim();
+
+    setState(() {
+      _query = value;
+      _error = null;
+      if (trimmed.isEmpty) {
         _movies = [];
         _series = [];
         _loading = false;
-      });
-    }
+      } else {
+        _loading = true;
+      }
+    });
+
+    if (trimmed.isEmpty) return;
+
+    _debounce = Timer(const Duration(milliseconds: 420), () async {
+      try {
+        final result = await catalogue.searchAsync(trimmed);
+        if (!mounted || seq != _searchSeq) return;
+        setState(() {
+          _movies = result.movies;
+          _series = result.series;
+          _loading = false;
+          _error = null;
+        });
+      } catch (e) {
+        if (!mounted || seq != _searchSeq) return;
+        setState(() {
+          _loading = false;
+          _error = 'Search failed. Check your connection and try again.';
+        });
+      }
+    });
   }
 
   List<Map<String, dynamic>> get _filteredResults {
@@ -76,9 +95,9 @@ class _SearchScreenState extends State<SearchScreen> {
       case 2:
         return _series;
       default:
-        // Interleave movies & series
         final list = <Map<String, dynamic>>[];
-        final maxLen = _movies.length > _series.length ? _movies.length : _series.length;
+        final maxLen =
+            _movies.length > _series.length ? _movies.length : _series.length;
         for (int i = 0; i < maxLen; i++) {
           if (i < _movies.length) list.add(_movies[i]);
           if (i < _series.length) list.add(_series[i]);
@@ -99,7 +118,6 @@ class _SearchScreenState extends State<SearchScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // Futuristic Search Bar Header
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
               child: Container(
@@ -107,7 +125,8 @@ class _SearchScreenState extends State<SearchScreen> {
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                      color: CinemahubColors.primary.withValues(alpha: isDark ? 0.18 : 0.08),
+                      color: CinemahubColors.primary
+                          .withValues(alpha: isDark ? 0.18 : 0.08),
                       blurRadius: 18,
                       offset: const Offset(0, 4),
                     ),
@@ -147,10 +166,9 @@ class _SearchScreenState extends State<SearchScreen> {
                           )
                         : null,
                     filled: true,
-                    fillColor: isDark
-                        ? const Color(0xFF141422)
-                        : Colors.white,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    fillColor: isDark ? const Color(0xFF141422) : Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 14),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(16),
                       borderSide: BorderSide(
@@ -172,10 +190,10 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
             ),
 
-            // Live Filter Bar (when there is a query)
-            if (_query.isNotEmpty && !_loading && totalCount > 0)
+            if (_query.trim().isNotEmpty && !_loading && totalCount > 0)
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   physics: const BouncingScrollPhysics(),
@@ -203,7 +221,6 @@ class _SearchScreenState extends State<SearchScreen> {
                 ),
               ),
 
-            // Main Content Area (Smooth Vertical Scrollable)
             Expanded(
               child: _buildBody(isDark, catalogue, results),
             ),
@@ -245,8 +262,37 @@ class _SearchScreenState extends State<SearchScreen> {
       );
     }
 
-    if (_query.isEmpty) {
+    if (_query.trim().isEmpty) {
       return _buildQuickPicks(isDark, catalogue);
+    }
+
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.wifi_off_rounded,
+                  size: 44, color: CinemahubColors.danger),
+              const SizedBox(height: 12),
+              Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: isDark ? Colors.white70 : Colors.black87,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: () => _onSearchChanged(catalogue, _query),
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
     }
 
     if (results.isEmpty) {
@@ -270,7 +316,8 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
               const SizedBox(height: 18),
               Text(
-                'No titles found for "$_query"',
+                'No titles found for "${_query.trim()}"',
+                textAlign: TextAlign.center,
                 style: TextStyle(
                   color: isDark ? Colors.white : Colors.black87,
                   fontSize: 16,
@@ -292,7 +339,6 @@ class _SearchScreenState extends State<SearchScreen> {
       );
     }
 
-    // High Density 3-Column Poster Grid
     return GridView.builder(
       physics: const BouncingScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 32),
@@ -304,8 +350,7 @@ class _SearchScreenState extends State<SearchScreen> {
       ),
       itemCount: results.length,
       itemBuilder: (context, index) {
-        final item = results[index];
-        return _SearchPosterCard(item: item, isDark: isDark);
+        return _SearchPosterCard(item: results[index], isDark: isDark);
       },
     );
   }
@@ -342,7 +387,8 @@ class _SearchScreenState extends State<SearchScreen> {
                 _onSearchChanged(catalogue, term);
               },
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 decoration: BoxDecoration(
                   color: isDark ? const Color(0xFF161626) : Colors.white,
                   borderRadius: BorderRadius.circular(20),
@@ -467,13 +513,14 @@ class _SearchPosterCard extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              // Poster Image
               posterUrl.isNotEmpty
                   ? CachedNetworkImage(
                       imageUrl: posterUrl,
                       fit: BoxFit.cover,
                       placeholder: (context, url) => Container(
-                        color: isDark ? const Color(0xFF1A1A2C) : Colors.grey.shade200,
+                        color: isDark
+                            ? const Color(0xFF1A1A2C)
+                            : Colors.grey.shade200,
                         child: const Center(
                           child: SizedBox(
                             width: 18,
@@ -486,16 +533,20 @@ class _SearchPosterCard extends StatelessWidget {
                         ),
                       ),
                       errorWidget: (context, url, error) => Container(
-                        color: isDark ? const Color(0xFF1A1A2C) : Colors.grey.shade200,
-                        child: const Icon(Icons.movie_rounded, color: Colors.grey),
+                        color: isDark
+                            ? const Color(0xFF1A1A2C)
+                            : Colors.grey.shade200,
+                        child: const Icon(Icons.movie_rounded,
+                            color: Colors.grey),
                       ),
                     )
                   : Container(
-                      color: isDark ? const Color(0xFF1A1A2C) : Colors.grey.shade200,
-                      child: const Icon(Icons.movie_rounded, color: Colors.grey),
+                      color: isDark
+                          ? const Color(0xFF1A1A2C)
+                          : Colors.grey.shade200,
+                      child:
+                          const Icon(Icons.movie_rounded, color: Colors.grey),
                     ),
-
-              // Gradient scrim overlay on bottom for text readability
               Positioned.fill(
                 child: DecoratedBox(
                   decoration: BoxDecoration(
@@ -512,15 +563,16 @@ class _SearchPosterCard extends StatelessWidget {
                   ),
                 ),
               ),
-
-              // Type Badge (Top-Left)
               Positioned(
                 top: 6,
                 left: 6,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                   decoration: BoxDecoration(
-                    color: (isMovie ? const Color(0xFF00B4D8) : const Color(0xFF9D4EDD))
+                    color: (isMovie
+                            ? const Color(0xFF00B4D8)
+                            : const Color(0xFF9D4EDD))
                         .withValues(alpha: 0.85),
                     borderRadius: BorderRadius.circular(6),
                   ),
@@ -535,14 +587,13 @@ class _SearchPosterCard extends StatelessWidget {
                   ),
                 ),
               ),
-
-              // Rating Badge (Top-Right)
               if (rating > 0)
                 Positioned(
                   top: 6,
                   right: 6,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                     decoration: BoxDecoration(
                       color: Colors.black.withValues(alpha: 0.75),
                       borderRadius: BorderRadius.circular(6),
@@ -550,7 +601,8 @@ class _SearchPosterCard extends StatelessWidget {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.star_rounded, size: 10, color: CinemahubColors.gold),
+                        const Icon(Icons.star_rounded,
+                            size: 10, color: CinemahubColors.gold),
                         const SizedBox(width: 2),
                         Text(
                           rating.toStringAsFixed(1),
@@ -564,8 +616,6 @@ class _SearchPosterCard extends StatelessWidget {
                     ),
                   ),
                 ),
-
-              // Title label on bottom
               Positioned(
                 left: 6,
                 right: 6,

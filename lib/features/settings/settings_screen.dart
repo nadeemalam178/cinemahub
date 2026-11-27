@@ -3,16 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/auth/auth_service.dart';
 import '../../core/admin/admin_service.dart';
-import '../../core/update/update_service.dart';
+import '../../core/auth/auth_service.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/theme/cinemahub_colors.dart';
 import '../../core/theme/cinemahub_tokens.dart';
 import '../../core/theme/glass.dart';
 import '../../core/theme/theme_provider.dart';
-import '../../features/admin/admin_dashboard.dart';
-import 'playback_diagnostics_screen.dart';
+import '../../core/update/update_service.dart';
 
 /// Settings: theme switching, notifications, administration, and OTA updates.
 class SettingsScreen extends StatefulWidget {
@@ -139,10 +137,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         elevation: 0,
       ),
       body: ListView(
-        padding: CinemahubSpacing.pagePadding,
+        padding: EdgeInsets.fromLTRB(
+          CinemahubSpacing.lg,
+          CinemahubSpacing.md,
+          CinemahubSpacing.lg,
+          MediaQuery.paddingOf(context).bottom + 100,
+        ),
         physics: const BouncingScrollPhysics(),
         children: [
-          // Account Profile Card (Displays User Display Name)
           GlassCard(
             accentColor: CinemahubColors.primary,
             child: Row(
@@ -241,7 +243,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 12),
 
-          // Appearance Section
           _SectionTitle('Theme & Display', isDark: isDark),
           GlassCard(
             child: Column(
@@ -326,7 +327,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 8),
 
-          // Push Notifications Section
           _SectionTitle('Alerts & Notifications', isDark: isDark),
           GlassCard(
             onTap: _sendingTestNotif ? null : _triggerTestNotification,
@@ -392,17 +392,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 8),
 
-          // Admin Dashboard (Exclusively shown if user has admin privileges)
           if (auth.isAdmin || admin.isAdmin) ...[
             _SectionTitle('Administration', isDark: isDark),
             GlassCard(
               accentColor: Colors.deepPurpleAccent,
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const AdminDashboard()),
-                );
-              },
+              onTap: () => Navigator.pushNamed(context, '/admin'),
               child: Row(
                 children: [
                   Container(
@@ -431,7 +425,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                         ),
                         Text(
-                          'Manage user approvals and platform settings',
+                          'Manage user approvals and provider registry',
                           style: TextStyle(
                             color: isDark ? Colors.white60 : Colors.black54,
                             fontSize: 12,
@@ -450,17 +444,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 8),
           ],
 
-          // Playback Engine Diagnostics (Exclusively for Admins/Owners or in Debug Mode)
           if (auth.isAdmin || admin.isAdmin || kDebugMode) ...[
             _SectionTitle('Diagnostics', isDark: isDark),
             GlassCard(
               accentColor: Colors.tealAccent,
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const PlaybackDiagnosticsScreen()),
-                );
-              },
+              onTap: () => Navigator.pushNamed(context, '/diagnostics'),
               child: Row(
                 children: [
                   Container(
@@ -508,7 +496,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 8),
           ],
 
-          // Updates & Version Section
           _SectionTitle('About & Updates', isDark: isDark),
           GlassCard(
             onTap: _checkingUpdates ? null : _checkForUpdates,
@@ -592,9 +579,7 @@ class _ThemeSegment extends StatelessWidget {
           duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.symmetric(vertical: 8),
           decoration: BoxDecoration(
-            color: isSelected
-                ? CinemahubColors.primary
-                : Colors.transparent,
+            color: isSelected ? CinemahubColors.primary : Colors.transparent,
             borderRadius: BorderRadius.circular(10),
             boxShadow: isSelected
                 ? [

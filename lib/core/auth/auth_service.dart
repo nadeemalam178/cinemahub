@@ -15,11 +15,11 @@ enum AuthState { loading, signedOut, pendingApproval, approved, suspended }
 /// Responsibilities:
 ///  * Google Sign-In and session restoration.
 ///  * Account status (pending / approved / suspended) from Firestore with live sync.
+///  * Custom claim token refresh when role changes.
 ///  * Sign-out and account switching.
 ///  * Never lets a client promote itself or approve its own account — those
-///    decisions live in Firestore security rules and owner-only logic.
+///    decisions live in Firestore security rules and Cloud Functions.
 class AuthService extends ChangeNotifier {
-  // Production factory that requires Firebase initialization
   factory AuthService.production({GoogleSignIn? googleSignIn}) {
     return AuthService(
       auth: FirebaseAuth.instance,
@@ -28,7 +28,6 @@ class AuthService extends ChangeNotifier {
     );
   }
 
-  // Test factory that skips Firebase initialization
   factory AuthService.test() {
     return AuthService(
       auth: null,
@@ -50,6 +49,9 @@ class AuthService extends ChangeNotifier {
   final FirebaseFirestore? _firestore;
   final GoogleSignIn? _googleSignIn;
 
+  final StreamController<AuthState> _stateController =
+      StreamController<AuthState>.broadcast();
+
   AuthState _state = AuthState.loading;
   AuthState get state => _state;
 
@@ -62,20 +64,24 @@ class AuthService extends ChangeNotifier {
   String? _configError;
   String? get configError => _configError;
 
-  /// Set by the owner allowlist / admin detection logic.
+  String? _role;
+  String? get role => _role;
+
+  /// Whether the current user has admin or owner privileges.
   bool _isAdmin = false;
   bool get isAdmin => _isAdmin;
 
   StreamSubscription<User?>? _authSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _userDocSub;
-  Stream<AuthState> get stateStream => Stream.value(_state);
+  String? _sessionTouchedUid;
+
+  Stream<AuthState> get stateStream => _stateController.stream;
 
   static const String _defaultWebClientId =
       '222608500817-2n8h32n8j5l6c1ivgrj1a9lcd378htsj.apps.googleusercontent.com';
 
   Future<void>? _initFuture;
 
-  /// Ensures [GoogleSignIn.initialize] is executed strictly once and safely reused.
   Future<void> _ensureInitialized() async {
     if (_googleSignIn == null) return;
     const serverClientId = String.fromEnvironment(
@@ -88,45 +94,78 @@ class AuthService extends ChangeNotifier {
     await _initFuture!;
   }
 
+  void _setState(AuthState next, {bool forceNotify = false}) {
+    final changed = _state != next;
+    _state = next;
+    if (changed && !_stateController.isClosed) {
+      _stateController.add(next);
+    }
+    if (changed || forceNotify) {
+      notifyListeners();
+    }
+  }
+
+  void _applyUserDoc(Map<String, dynamic>? data) {
+    final status = (data?['status'] as String?) ?? 'pending';
+    final nextRole = data?['role'] as String?;
+    final roleChanged = nextRole != _role;
+    final prevAdmin = _isAdmin;
+
+    _role = nextRole;
+    _isAdmin = nextRole == 'owner' || nextRole == 'admin';
+
+    if (roleChanged && _user != null) {
+      unawaited(_user!.getIdToken(true).catchError((_) => null));
+    }
+
+    final nextState = switch (status) {
+      'approved' => AuthState.approved,
+      'suspended' => AuthState.suspended,
+      _ => AuthState.pendingApproval,
+    };
+
+    _setState(nextState, forceNotify: roleChanged || prevAdmin != _isAdmin);
+  }
+
   /// Called from main() after optional Firebase wiring.
   void initialize({required bool firebaseConfigured}) {
     _firebaseReady = firebaseConfigured;
 
-    // Initialize GoogleSignIn asynchronously in background without blocking app startup
     unawaited(_ensureInitialized().catchError((e) {
       debugPrint('GoogleSignIn ensureInitialized error: $e');
     }));
 
     if (!firebaseConfigured || _auth == null) {
-      _state = AuthState.signedOut;
       _configError = DefaultFirebaseOptions.configurationStatus;
-      notifyListeners();
+      _setState(AuthState.signedOut, forceNotify: true);
       return;
     }
     _authSub = _auth.authStateChanges().listen(_onAuthChanged);
   }
 
-  /// Called when splash animation finishes. If auth status is still loading, transition to signedOut.
+  /// Called when splash animation finishes.
   void onSplashFinished() {
-    if (_state == AuthState.loading) {
-      _state = _user != null ? AuthState.pendingApproval : AuthState.signedOut;
-      notifyListeners();
+    if (_state != AuthState.loading) return;
+    if (_user == null) {
+      _setState(AuthState.signedOut);
+    } else {
+      unawaited(_refreshAccountStatus(fallbackToPending: true));
     }
   }
 
-  void _onAuthChanged(User? user) async {
+  Future<void> _onAuthChanged(User? user) async {
     _user = user;
     await _userDocSub?.cancel();
     _userDocSub = null;
 
     if (user == null) {
-      _state = AuthState.signedOut;
+      _role = null;
       _isAdmin = false;
-      notifyListeners();
+      _sessionTouchedUid = null;
+      _setState(AuthState.signedOut, forceNotify: true);
       return;
     }
 
-    // Set up real-time listener on user's status document in Firestore
     if (_firestore != null) {
       _userDocSub = _firestore
           .collection('users')
@@ -135,42 +174,41 @@ class AuthService extends ChangeNotifier {
           .listen(
         (doc) async {
           if (!doc.exists) {
-            // First time sign in: create initial user document in Firestore
+            // Create profile fields only; status/role are assigned server-side by onUserCreate.
             try {
               await _firestore.collection('users').doc(user.uid).set({
                 'uid': user.uid,
-                'email': user.email,
-                'displayName': user.displayName,
-                'photoURL': user.photoURL,
-                'status': 'pending',
-                'role': 'member',
+                'email': user.email ?? '',
+                'displayName': user.displayName ?? '',
+                'photoURL': user.photoURL ?? '',
                 'createdAt': FieldValue.serverTimestamp(),
+                'lastActive': FieldValue.serverTimestamp(),
               }, SetOptions(merge: true));
             } catch (e) {
               debugPrint('Error creating user doc in Firestore: $e');
             }
-            _state = AuthState.pendingApproval;
+            _role = null;
             _isAdmin = false;
-            notifyListeners();
+            _setState(AuthState.pendingApproval, forceNotify: true);
             return;
           }
-          final data = doc.data();
-          final status = (data?['status'] as String?) ?? 'pending';
-          final role = data?['role'] as String?;
-          _isAdmin = role == 'owner' || role == 'admin';
-          switch (status) {
-            case 'approved':
-              _state = AuthState.approved;
-            case 'suspended':
-              _state = AuthState.suspended;
-            default:
-              _state = AuthState.pendingApproval;
+
+          if (_sessionTouchedUid != user.uid) {
+            _sessionTouchedUid = user.uid;
+            unawaited(
+              _firestore
+                  .collection('users')
+                  .doc(user.uid)
+                  .update({'lastActive': FieldValue.serverTimestamp()})
+                  .catchError((_) {}),
+            );
           }
-          notifyListeners();
+
+          _applyUserDoc(doc.data());
         },
         onError: (e) {
           debugPrint('AuthService user doc stream error: $e');
-          _refreshAccountStatus();
+          unawaited(_refreshAccountStatus());
         },
       );
     } else {
@@ -178,36 +216,31 @@ class AuthService extends ChangeNotifier {
     }
   }
 
-  Future<void> _refreshAccountStatus() async {
+  Future<void> _refreshAccountStatus({bool fallbackToPending = false}) async {
     final user = _user;
-    if (user == null) return;
+    if (user == null) {
+      _setState(AuthState.signedOut);
+      return;
+    }
     if (_firestore == null) {
-      _state = AuthState.signedOut;
-      notifyListeners();
+      _setState(AuthState.signedOut);
       return;
     }
     try {
       final doc = await _firestore.collection('users').doc(user.uid).get();
       if (!doc.exists) {
-        _state = AuthState.pendingApproval;
-        notifyListeners();
+        if (fallbackToPending) {
+          _setState(AuthState.pendingApproval);
+        }
         return;
       }
-      final status = (doc.data()?['status'] as String?) ?? 'pending';
-      _isAdmin = (doc.data()?['role'] as String?) == 'owner' ||
-          (doc.data()?['role'] as String?) == 'admin';
-      switch (status) {
-        case 'approved':
-          _state = AuthState.approved;
-        case 'suspended':
-          _state = AuthState.suspended;
-        default:
-          _state = AuthState.pendingApproval;
-      }
-      notifyListeners();
+      _applyUserDoc(doc.data());
     } catch (_) {
-      // Offline / network error — keep last known state.
-      notifyListeners();
+      if (fallbackToPending && _state == AuthState.loading) {
+        _setState(AuthState.pendingApproval);
+      } else {
+        notifyListeners();
+      }
     }
   }
 
@@ -270,15 +303,17 @@ class AuthService extends ChangeNotifier {
       await _auth.signOut();
     }
     _user = null;
+    _role = null;
     _isAdmin = false;
-    _state = AuthState.signedOut;
-    notifyListeners();
+    _sessionTouchedUid = null;
+    _setState(AuthState.signedOut, forceNotify: true);
   }
 
   @override
   void dispose() {
     _userDocSub?.cancel();
     _authSub?.cancel();
+    _stateController.close();
     super.dispose();
   }
 }

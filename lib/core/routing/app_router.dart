@@ -1,14 +1,15 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import '../auth/auth_service.dart';
-import '../../features/auth/splash_screen.dart';
-import '../../features/auth/sign_in_screen.dart';
+import '../../features/admin/admin_dashboard.dart';
 import '../../features/auth/pending_access_screen.dart';
-import '../../features/shell/app_shell.dart';
+import '../../features/auth/sign_in_screen.dart';
+import '../../features/auth/splash_screen.dart';
 import '../../features/details/content_detail_screen.dart';
 import '../../features/search/search_screen.dart';
-import '../../features/admin/admin_dashboard.dart';
 import '../../features/settings/playback_diagnostics_screen.dart';
+import '../../features/shell/app_shell.dart';
+import '../auth/auth_service.dart';
 
 /// Maps [AuthState] and route names to views for the app shell.
 class AppRouter {
@@ -17,11 +18,7 @@ class AppRouter {
   final AuthService _auth;
 
   Route<dynamic>? onGenerateRoute(RouteSettings settings, AuthState authState) {
-    if (settings.name == '/diagnostics') {
-      return _slide(const PlaybackDiagnosticsScreen());
-    }
-
-    // If user is not approved, always restrict navigation to the appropriate auth view
+    // If user is not approved, restrict all navigation to the appropriate auth view.
     if (authState != AuthState.approved) {
       return _routeForAuthState(authState);
     }
@@ -45,7 +42,15 @@ class AppRouter {
       case '/search':
         return _slide(const SearchScreen());
       case '/admin':
+        if (!_auth.isAdmin) {
+          return _slide(const AppShell());
+        }
         return _slide(const AdminDashboard());
+      case '/diagnostics':
+        if (!_auth.isAdmin && !kDebugMode) {
+          return _slide(const AppShell());
+        }
+        return _slide(const PlaybackDiagnosticsScreen());
       case '/home':
       case '/':
       default:

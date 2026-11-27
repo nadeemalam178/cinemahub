@@ -17,16 +17,9 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.cinemahub.app"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdk = maxOf(flutter.minSdkVersion, 24)
         targetSdk = flutter.targetSdkVersion
-        // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
-        // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)
-        // You can force using the value of versionCode by specifying the `-P force-version-code-ignoring-abi=true`
-        // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
@@ -51,6 +44,10 @@ android {
             } else {
                 signingConfigs.getByName("debug")
             }
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 }
@@ -67,4 +64,12 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+
+    // Native BitTorrent streaming engine (supports Android API 24+)
+    val libtorrent4jVersion = "2.1.0-38"
+    implementation("org.libtorrent4j:libtorrent4j:$libtorrent4jVersion")
+    implementation("org.libtorrent4j:libtorrent4j-android-arm64:$libtorrent4jVersion")
+    implementation("org.libtorrent4j:libtorrent4j-android-arm:$libtorrent4jVersion")
+    implementation("org.libtorrent4j:libtorrent4j-android-x86_64:$libtorrent4jVersion")
+    implementation("org.libtorrent4j:libtorrent4j-android-x86:$libtorrent4jVersion")
 }

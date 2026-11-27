@@ -1,100 +1,99 @@
 // CinemaHub Firestore Security Rules
-// Only approved users can access their private data.
-// Admins can manage users and catalogue.
-// Users CANNOT modify their own status/role fields (prevents self-approval bypass).
+// Only approved users can access app data and private subcollections.
+// Admins and owners can manage users, access requests, and providers.
+// Users CANNOT set or modify their own status/role fields.
 
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Public catalogue — anyone can read
-    match /catalogue/{contentId} {
-      allow read: if request.auth != null;
-      allow write: if false;
+    function isSignedIn() {
+      return request.auth != null;
     }
 
-    // User data — owner can read; owner can write EXCEPT status/role fields
-    // Admins/owners can write all fields including status/role
-    match /users/{userId} {
-      allow read: if request.auth != null && (
-        request.auth.uid == userId ||
+    function isAdmin() {
+      return isSignedIn() && (
         request.auth.token.role == 'admin' ||
         request.auth.token.role == 'owner'
       );
-      
-      // Owner can write non-protected fields (email, displayName, photoURL, lastActive, etc.)
-      allow update: if request.auth != null && request.auth.uid == userId
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'role']);
-      
-      // Owner can create their own document (initial signup) but without status/role
-      allow create: if request.auth != null && request.auth.uid == userId
+    }
+
+    function isApproved() {
+      return isAdmin() || (
+        isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'approved'
+      );
+    }
+
+    // Catalogue cache — approved users can read; backend/admin only writes
+    match /catalogue/{contentId} {
+      allow read: if isApproved();
+      allow write: if false;
+    }
+
+    // User profile document — user can read/create/update non-protected fields;
+    // admins/owners can read and write all fields including status/role.
+    match /users/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+
+      allow create: if isSignedIn() && request.auth.uid == userId
         && !request.resource.data.keys().hasAny(['status', 'role']);
-      
-      // Admins/owners can write all fields including status/role
-      allow write: if request.auth != null &&
-        (request.auth.token.role == 'admin' || request.auth.token.role == 'owner');
+
+      allow update: if isSignedIn() && request.auth.uid == userId
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'role']);
+
+      allow write: if isAdmin();
     }
 
-    // User profiles — only the owner can manage
+    // User profiles — approved owner (or admin) only
     match /users/{userId}/profiles/{profileId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if isApproved() && (request.auth.uid == userId || isAdmin());
     }
 
-    // Watch history — only the owner can see their own
+    // Watch history — approved owner (or admin) only
     match /users/{userId}/watchHistory/{contentId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if isApproved() && (request.auth.uid == userId || isAdmin());
     }
 
-    // Watchlist — only the owner can manage
+    // Watchlist — approved owner (or admin) only
     match /users/{userId}/watchlist/{contentId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if isApproved() && (request.auth.uid == userId || isAdmin());
     }
 
-    // Access requests — admins can approve/suspend, users can request
+    // Access requests — user can only create/read their own pending request; admins manage status
     match /accessRequests/{userId} {
-      allow create: if request.auth != null;
-      allow read, update, delete: if request.auth != null &&
-        (request.auth.uid == userId ||
-         request.auth.token.role == 'admin' ||
-         request.auth.token.role == 'owner');
+      allow create: if isSignedIn()
+        && request.auth.uid == userId
+        && (!request.resource.data.keys().hasAny(['status']) || request.resource.data.status == 'pending');
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow update, delete: if isAdmin();
     }
 
-    // Provider registry — only admins can manage
+    // Provider registry — approved users can read; admins manage
     match /providers/{providerId} {
-      allow read: if request.auth != null;
-      allow create, update, delete: if request.auth != null &&
-        (request.auth.token.role == 'admin' ||
-         request.auth.token.role == 'owner');
+      allow read: if isApproved();
+      allow create, update, delete: if isAdmin();
 
-      // Health subcollection — admins can write health status
       match /health/{healthId} {
-        allow read: if request.auth != null;
-        allow write: if request.auth != null &&
-          (request.auth.token.role == 'admin' ||
-           request.auth.token.role == 'owner');
+        allow read: if isApproved();
+        allow write: if isAdmin();
       }
     }
 
-    // Provider health legacy collection — only admins can write
+    // Legacy provider health collection — approved users can read; admins write
     match /providerHealth/{providerId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null &&
-        (request.auth.token.role == 'admin' ||
-         request.auth.token.role == 'owner');
+      allow read: if isApproved();
+      allow write: if isAdmin();
     }
 
-    // Admin dashboard — only owners and admins
+    // Admin dashboard docs — owners and admins only
     match /admin/{docId} {
-      allow read, write: if request.auth != null &&
-        (request.auth.token.role == 'admin' ||
-         request.auth.token.role == 'owner');
+      allow read, write: if isAdmin();
     }
 
-    // Admin user status management — only owners and admins
-    // This is used by Cloud Functions to set custom claims
+    // Admin user status management — triggers onUserStatusUpdate Cloud Function
     match /admin/userStatus/users/{uid} {
-      allow read, write: if request.auth != null &&
-        (request.auth.token.role == 'admin' ||
-         request.auth.token.role == 'owner');
+      allow read, write: if isAdmin();
     }
   }
 }

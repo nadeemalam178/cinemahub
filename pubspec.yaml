@@ -16,11 +16,9 @@ dependencies:
   firebase_auth: ^7.1.0
   google_sign_in: ^7.2.0
   cloud_firestore: ^7.2.0
-  firebase_storage: ^14.1.0
 
-  # State management & routing
+  # State management
   provider: ^6.1.5
-  go_router: ^18.1.4
 
   # Networking & caching
   dio: ^5.8.0
@@ -28,28 +26,23 @@ dependencies:
   connectivity_plus: ^7.3.2
   path_provider: ^2.1.5
   shared_preferences: ^2.3.5
-  sqlite3: ^3.9.1
-  drift: ^2.24.0
 
-  # Playback
+  # Playback & Web Embeds
   video_player: ^2.9.1
   chewie: ^1.7.5
+  flutter_inappwebview: ^6.1.5
 
-  # UI polish
+  # UI & system integration
   flutter_svg: ^2.0.9
   shimmer: ^4.0.0
   lottie: ^3.8.2
   share_plus: ^13.3.1
   url_launcher: ^6.3.1
-  in_app_review: ^2.0.9
   package_info_plus: ^10.2.2
   permission_handler: ^13.0.2
-  webview_flutter: ^4.14.1
-  webview_flutter_android: ^4.1.0
   firebase_messaging: ^17.1.0
   flutter_local_notifications: ^23.0.3
-  torrent_streamer: ^0.0.2
-  flutter_inappwebview: ^6.1.5
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -65,6 +58,3 @@ flutter:
     - assets/images/
     - assets/animations/
     - assets/branding/
-
-  # Fonts are included in pubspec without the `flutter.fonts` property for portability
-  # between the local sample and the deployed package.

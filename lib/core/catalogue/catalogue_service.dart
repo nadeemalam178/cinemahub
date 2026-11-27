@@ -7,13 +7,6 @@ import 'stremio_catalog_service.dart';
 import 'tmdb_service.dart';
 
 /// Unified catalogue service for movies and TV series.
-///
-/// Responsibilities:
-/// * Fetch and cache metadata from TMDB
-/// * Store in Firestore for offline access
-/// * Provide stable content IDs
-/// * Handle pagination and search
-/// * Support local caching for performance
 class CatalogueService extends ChangeNotifier {
   CatalogueService({
     required this._tmdb,
@@ -31,41 +24,61 @@ class CatalogueService extends ChangeNotifier {
   final Map<String, Timer> _debounce = {};
   final Map<String, dynamic> _cache = {};
 
-  /// Search across movies and series with debouncing.
+  /// Async search across movies and series (supports race-safe callers).
+  Future<({List<Map<String, dynamic>> movies, List<Map<String, dynamic>> series})>
+      searchAsync(String query) async {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) {
+      return (movies: <Map<String, dynamic>>[], series: <Map<String, dynamic>>[]);
+    }
+
+    final results = await Future.wait([
+      _tmdb.searchMovies(trimmed, rethrowErrors: true),
+      _tmdb.searchSeries(trimmed, rethrowErrors: true),
+    ]);
+
+    final movies = results[0].map((m) {
+      final item = Map<String, dynamic>.from(m);
+      item['title'] ??= item['name'];
+      return _normalizeContent(item);
+    }).toList();
+
+    final series = results[1].map((s) {
+      final item = Map<String, dynamic>.from(s);
+      item['name'] ??= item['title'];
+      return _normalizeContent(item);
+    }).toList();
+
+    _cache['search:$trimmed'] = [...movies, ...series];
+    return (movies: movies, series: series);
+  }
+
+  /// Legacy debounced callback search wrapper.
   void search({
     required String query,
     required Function(List<Map<String, dynamic>>) onMovies,
     required Function(List<Map<String, dynamic>>) onSeries,
   }) {
     _debounce['search']?.cancel();
-    _debounce['search'] = Timer(const Duration(milliseconds: 500), () async {
-      final rawMovies = await _tmdb.searchMovies(query);
-      final rawSeries = await _tmdb.searchSeries(query);
-
-      final movies = rawMovies.map((m) {
-        final item = Map<String, dynamic>.from(m);
-        item['title'] ??= item['name'];
-        return _normalizeContent(item);
-      }).toList();
-
-      final series = rawSeries.map((s) {
-        final item = Map<String, dynamic>.from(s);
-        item['name'] ??= item['title'];
-        return _normalizeContent(item);
-      }).toList();
-
-      _cache['search:$query'] = [...movies, ...series];
-      onMovies(movies);
-      onSeries(series);
+    _debounce['search'] = Timer(const Duration(milliseconds: 400), () async {
+      try {
+        final result = await searchAsync(query);
+        onMovies(result.movies);
+        onSeries(result.series);
+      } catch (e) {
+        debugPrint('CatalogueService search failed: $e');
+        onMovies([]);
+        onSeries([]);
+      }
     });
   }
 
   /// Get trending content across movies and series.
   Future<List<Map<String, dynamic>>> getTrending() async {
     final cached = _cache['trending'];
-    if (cached != null) return cached;
+    if (cached != null) return cached as List<Map<String, dynamic>>;
 
-    final items = await _tmdb.getTrendingAll();
+    final items = await _tmdb.getTrendingAll(rethrowErrors: true);
     final content = items.map(_normalizeContent).toList();
 
     _cache['trending'] = content;
@@ -75,9 +88,9 @@ class CatalogueService extends ChangeNotifier {
   /// Get top rated movies.
   Future<List<Map<String, dynamic>>> getTopRatedMovies() async {
     final cached = _cache['top_rated:movies'];
-    if (cached != null) return cached;
+    if (cached != null) return cached as List<Map<String, dynamic>>;
 
-    final movies = await _tmdb.getTopRatedMovies();
+    final movies = await _tmdb.getTopRatedMovies(rethrowErrors: true);
     final content = movies.map(_normalizeContent).toList();
 
     _cache['top_rated:movies'] = content;
@@ -87,9 +100,9 @@ class CatalogueService extends ChangeNotifier {
   /// Get popular movies.
   Future<List<Map<String, dynamic>>> getPopularMovies() async {
     final cached = _cache['popular:movies'];
-    if (cached != null) return cached;
+    if (cached != null) return cached as List<Map<String, dynamic>>;
 
-    final movies = await _tmdb.getPopularMovies();
+    final movies = await _tmdb.getPopularMovies(rethrowErrors: true);
     final content = movies.map(_normalizeContent).toList();
 
     _cache['popular:movies'] = content;
@@ -99,16 +112,16 @@ class CatalogueService extends ChangeNotifier {
   /// Get popular series.
   Future<List<Map<String, dynamic>>> getPopularSeries() async {
     final cached = _cache['popular:series'];
-    if (cached != null) return cached;
+    if (cached != null) return cached as List<Map<String, dynamic>>;
 
-    final series = await _tmdb.getPopularSeries();
+    final series = await _tmdb.getPopularSeries(rethrowErrors: true);
     final content = series.map(_normalizeContent).toList();
 
     _cache['popular:series'] = content;
     return content;
   }
 
-  /// Get Stremio community addon shelves (Cinemeta, Kitsu, etc.).
+  /// Get Stremio community addon shelves.
   Future<List<StremioShelf>> getStremioShelves() async {
     const cacheKey = 'stremio:shelves';
     final cached = _cache[cacheKey];
@@ -123,9 +136,9 @@ class CatalogueService extends ChangeNotifier {
   Future<List<Map<String, dynamic>>> getByGenre(int genreId) async {
     final key = 'genre:$genreId';
     final cached = _cache[key];
-    if (cached != null) return cached;
+    if (cached != null) return cached as List<Map<String, dynamic>>;
 
-    final movies = await _tmdb.getMoviesByGenre(genreId);
+    final movies = await _tmdb.getMoviesByGenre(genreId, rethrowErrors: true);
     final content = movies.map(_normalizeContent).toList();
 
     _cache[key] = content;
@@ -136,7 +149,7 @@ class CatalogueService extends ChangeNotifier {
   Future<Map<String, dynamic>?> getContentDetails(String type, int id) async {
     final key = 'details:$type:$id';
     final cached = _cache[key];
-    if (cached != null) return cached;
+    if (cached != null) return cached as Map<String, dynamic>;
 
     Map<String, dynamic>? details;
     if (type == 'movie') {
@@ -160,10 +173,9 @@ class CatalogueService extends ChangeNotifier {
   ) async {
     final key = 'episodes:$seriesId:$seasonNumber';
     final cached = _cache[key];
-    if (cached != null) return cached;
+    if (cached != null) return cached as List<Map<String, dynamic>>;
 
     final episodes = await _tmdb.getSeasonEpisodes(seriesId, seasonNumber);
-    // Don't normalize episodes like top-level series; UI expects raw TMDB episode fields
     final content = episodes.toList();
 
     _cache[key] = content;
@@ -172,15 +184,26 @@ class CatalogueService extends ChangeNotifier {
 
   /// Normalize TMDB response to our internal format.
   Map<String, dynamic> _normalizeContent(Map<String, dynamic> tmdbData) {
-    final type = tmdbData['title'] != null ? 'movie' : 'series';
+    final mediaType = tmdbData['media_type'] as String?;
+    final type = mediaType == 'tv' || mediaType == 'series'
+        ? 'series'
+        : (tmdbData['title'] != null ? 'movie' : 'series');
     final id = tmdbData['id'];
     final title = tmdbData['title'] ?? tmdbData['name'];
     final posterPath = tmdbData['poster_path'];
     final backdropPath = tmdbData['backdrop_path'];
     final overview = tmdbData['overview'];
     final releaseDate = tmdbData['release_date'] ?? tmdbData['first_air_date'];
-    final rating = tmdbData['vote_average']?.toDouble() ?? 0.0;
-    final genreIds = (tmdbData['genre_ids'] as List?)?.cast<int>() ?? [];
+    final rating = (tmdbData['vote_average'] as num?)?.toDouble() ?? 0.0;
+    final genreIds = (tmdbData['genre_ids'] as List?)
+            ?.map((e) => (e as num).toInt())
+            .toList() ??
+        (tmdbData['genres'] as List?)
+            ?.whereType<Map>()
+            .map((g) => (g['id'] as num?)?.toInt())
+            .whereType<int>()
+            .toList() ??
+        <int>[];
 
     return {
       'id': 'tmdb:$type:$id',

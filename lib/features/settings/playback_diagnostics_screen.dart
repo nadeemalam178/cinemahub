@@ -113,18 +113,18 @@ class _PlaybackDiagnosticsScreenState extends State<PlaybackDiagnosticsScreen> {
       ),
     ),
 
-    // 6. BitTorrent Magnet URI
+    // 6. BitTorrent Magnet URI (In-app native libtorrent4j engine)
     DiagnosticTestCase(
       name: 'BitTorrent Magnet URI',
-      formatLabel: 'P2P Magnet',
-      description: 'P2P magnet URI to test router notice sheet and external player dispatch',
+      formatLabel: 'P2P Magnet (In-App)',
+      description: 'P2P magnet URI routed to native libtorrent4j + local HTTP proxy into ExoPlayer',
       source: const StreamSource(
         id: 'diag-magnet',
         provider: 'Diagnostic Test Suite',
         name: 'Big Buck Bunny (Public Magnet)',
-        url: 'magnet:?xt=urn:btih:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855&dn=Big+Buck+Bunny+Public+Domain',
+        url: 'magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny',
         type: StreamType.magnet,
-        isPlayableInternally: false,
+        isPlayableInternally: true,
       ),
     ),
   ];
@@ -209,7 +209,7 @@ class _PlaybackDiagnosticsScreenState extends State<PlaybackDiagnosticsScreen> {
                 Expanded(
                   child: Text(
                     'Developer Verification Suite — Phase 2.2.\n'
-                    'Runs authorized public test media across ExoPlayer, WebView and Router.',
+                    'Runs authorized public test media across ExoPlayer, WebView, and libtorrent4j.',
                     style: TextStyle(fontSize: 12, height: 1.4),
                   ),
                 ),

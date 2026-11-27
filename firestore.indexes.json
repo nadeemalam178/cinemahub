@@ -8,12 +8,6 @@
       ]
     },
     {
-      "collectionGroup": "users",
-      "fields": [
-        { "fieldPath": "lastActive", "order": "DESC" }
-      ]
-    },
-    {
       "collectionGroup": "watchHistory",
       "fields": [
         { "fieldPath": "contentId", "order": "ASC" },
@@ -46,12 +40,6 @@
       "fields": [
         { "fieldPath": "providerId", "order": "ASC" },
         { "fieldPath": "checkedAt", "order": "DESC" }
-      ]
-    },
-    {
-      "collectionGroup": "admin",
-      "fields": [
-        { "fieldPath": "userStatus", "order": "ASC" }
       ]
     }
   ]

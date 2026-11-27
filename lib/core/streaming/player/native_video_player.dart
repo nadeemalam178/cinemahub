@@ -1,20 +1,23 @@
+import 'dart:async';
+
 import 'package:chewie/chewie.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
-import 'package:torrent_streamer/torrent_streamer.dart';
-import 'dart:async';
 
 import '../../player/subtitles/subtitle_model.dart';
 import '../../player/subtitles/subtitle_overlay.dart';
 import '../../player/subtitles/subtitle_picker_sheet.dart';
 import '../../player/subtitles/subtitle_service.dart';
+import '../../sync/sync_service.dart';
 import '../diagnostics/streaming_logger.dart';
 import '../models/stream_source.dart';
+import 'torrent_channel.dart';
 
-/// Upgraded native video player backed by video_player (ExoPlayer on Android) and Chewie.
-/// Fully preserves custom HTTP headers (Referer, Origin, User-Agent), tracks first frame,
-/// and handles buffering/retry states gracefully.
+/// Native video player backed by ExoPlayer (`video_player` + `chewie`) and our
+/// native Android `libtorrent4j` HTTP range proxy for P2P magnets.
 class NativeVideoPlayer extends StatefulWidget {
   const NativeVideoPlayer({
     super.key,
@@ -42,10 +45,15 @@ class _NativeVideoPlayerState extends State<NativeVideoPlayer> {
   Duration _subtitleSyncDelay = Duration.zero;
   CinemaSubtitleStyle _subtitleStyle = const CinemaSubtitleStyle();
 
+  StreamSubscription<TorrentProgress>? _torrentSub;
+  TorrentProgress? _torrentProgress;
+  bool _isTorrentStream = false;
+
   bool _isInitializing = true;
   bool _hasFirstFrame = false;
   String? _errorMessage;
   int _retryCount = 0;
+  DateTime _lastProgressSyncAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   void initState() {
@@ -57,41 +65,71 @@ class _NativeVideoPlayerState extends State<NativeVideoPlayer> {
     setState(() {
       _isInitializing = true;
       _errorMessage = null;
+      _torrentProgress = null;
     });
 
     String url = widget.source.url ?? '';
-    final isMagnet = widget.source.type == StreamType.magnet || url.startsWith('magnet:?');
+    final isMagnet = widget.source.type == StreamType.magnet ||
+        url.toLowerCase().startsWith('magnet:?') ||
+        (widget.source.infoHash != null && widget.source.infoHash!.isNotEmpty && url.isEmpty);
+    _isTorrentStream = isMagnet;
 
     if (isMagnet) {
+      if (url.isEmpty && widget.source.infoHash != null) {
+        url = StreamSource.ensureTrackers(
+          'magnet:?xt=urn:btih:${widget.source.infoHash}',
+        );
+      } else {
+        url = StreamSource.ensureTrackers(url);
+      }
+
       try {
-        if (!TorrentStreamer.isInitialised) {
-          await TorrentStreamer.init();
+        final readyCompleter = Completer<void>();
+        await _torrentSub?.cancel();
+        _torrentSub = TorrentChannel.progressStream.listen((progress) {
+          if (!mounted) return;
+          setState(() => _torrentProgress = progress);
+
+          if (progress.state == 'error' && !readyCompleter.isCompleted) {
+            readyCompleter.completeError(
+              Exception(progress.error ?? 'Torrent engine reported an error'),
+            );
+          } else if (progress.readyForPlayback && !readyCompleter.isCompleted) {
+            readyCompleter.complete();
+          }
+        });
+
+        final startResult = await TorrentChannel.startStream(
+          url,
+          fileIndex: widget.source.fileIndex,
+        );
+        url = startResult.streamUrl;
+
+        // Wait for header pieces so ExoPlayer receives immediate HTTP bytes without read-timeouts
+        final snapshot = await TorrentChannel.getStatus();
+        if (snapshot?.readyForPlayback != true && !readyCompleter.isCompleted) {
+          await readyCompleter.future.timeout(
+            const Duration(seconds: 90),
+            onTimeout: () {
+              throw TimeoutException(
+                'Timed out waiting for torrent pieces (peers: ${_torrentProgress?.peers ?? 0}).',
+              );
+            },
+          );
         }
-        await TorrentStreamer.start(url);
-        final completer = Completer<String>();
-        TorrentStreamer.addEventListener('ready', (_) async {
-          if (!completer.isCompleted) {
-            final streamUrl = await TorrentStreamer.getStreamUrl();
-            completer.complete(streamUrl);
-          }
-        });
-        TorrentStreamer.addEventListener('error', (err) {
-          if (!completer.isCompleted) {
-            completer.completeError(Exception('Torrent failed: $err'));
-          }
-        });
-        url = await completer.future.timeout(const Duration(seconds: 30));
       } catch (e) {
+        await TorrentChannel.stopStream();
         if (mounted) {
           setState(() {
             _isInitializing = false;
-            _errorMessage = 'Torrent streamer error: $e';
+            _errorMessage = 'Torrent playback error: $e';
           });
         }
         return;
       }
     }
 
+    if (!mounted) return;
     final uri = Uri.tryParse(url);
 
     if (url.isEmpty || uri == null || !uri.hasScheme) {
@@ -120,7 +158,6 @@ class _NativeVideoPlayerState extends State<NativeVideoPlayer> {
     );
 
     try {
-      // 1. Map StreamType and URL/MIME hints to explicit VideoFormat for Android Media3/ExoPlayer
       VideoFormat? formatHint;
       final lowerUrl = url.toLowerCase();
       final lowerMime = (widget.source.mimeType ?? '').toLowerCase();
@@ -135,21 +172,22 @@ class _NativeVideoPlayerState extends State<NativeVideoPlayer> {
           lowerMime.contains('dash')) {
         formatHint = VideoFormat.dash;
       } else if (widget.source.type == StreamType.directHttp ||
+          isMagnet ||
           lowerUrl.contains('.mp4') ||
           lowerUrl.contains('.mkv') ||
           lowerMime.contains('video/')) {
         formatHint = VideoFormat.other;
       }
 
-      // Sanitize headers map: ensure non-null string keys and values
       final cleanHeaders = <String, String>{};
-      widget.source.headers.forEach((key, value) {
-        if (key.trim().isNotEmpty && value.trim().isNotEmpty) {
-          cleanHeaders[key.trim()] = value.trim();
-        }
-      });
+      if (!isMagnet) {
+        widget.source.headers.forEach((key, value) {
+          if (key.trim().isNotEmpty && value.trim().isNotEmpty) {
+            cleanHeaders[key.trim()] = value.trim();
+          }
+        });
+      }
 
-      // 2. Build controller with forwarded custom HTTP headers and formatHint
       final controller = VideoPlayerController.networkUrl(
         uri,
         formatHint: formatHint,
@@ -165,7 +203,6 @@ class _NativeVideoPlayerState extends State<NativeVideoPlayer> {
         return;
       }
 
-      // 2. Setup Chewie controller with custom controls
       final aspectRatio = controller.value.aspectRatio;
       _chewieController = ChewieController(
         videoPlayerController: controller,
@@ -175,30 +212,24 @@ class _NativeVideoPlayerState extends State<NativeVideoPlayer> {
         allowFullScreen: true,
         allowMuting: true,
         allowPlaybackSpeedChanging: true,
-        deviceOrientationsAfterFullScreen: [
+        deviceOrientationsAfterFullScreen: const [
           DeviceOrientation.portraitUp,
           DeviceOrientation.landscapeLeft,
           DeviceOrientation.landscapeRight,
         ],
-        deviceOrientationsOnEnterFullScreen: [
+        deviceOrientationsOnEnterFullScreen: const [
           DeviceOrientation.landscapeLeft,
           DeviceOrientation.landscapeRight,
         ],
         placeholder: Container(color: Colors.black),
-        errorBuilder: (context, errorMessage) {
-          return _buildErrorWidget(errorMessage);
-        },
+        errorBuilder: (context, errorMessage) => _buildErrorWidget(errorMessage),
       );
 
       controller.addListener(_videoListener);
-
-      // Async fetch available subtitle tracks
-      _fetchSubtitles();
+      unawaited(_fetchSubtitles());
 
       if (mounted) {
-        setState(() {
-          _isInitializing = false;
-        });
+        setState(() => _isInitializing = false);
       }
     } catch (e) {
       StreamingLogger.instance.log(
@@ -232,13 +263,12 @@ class _NativeVideoPlayerState extends State<NativeVideoPlayer> {
       );
 
       if (mounted) {
-        setState(() {
-          _availableSubtitleTracks = tracks;
-        });
+        setState(() => _availableSubtitleTracks = tracks);
 
-        // Auto-select English track if available
         final englishTrack = tracks.cast<CinemaSubtitleTrack?>().firstWhere(
-              (t) => t?.languageCode.toLowerCase() == 'en' || t?.languageCode.toLowerCase() == 'eng',
+              (t) =>
+                  t?.languageCode.toLowerCase() == 'en' ||
+                  t?.languageCode.toLowerCase() == 'eng',
               orElse: () => tracks.isNotEmpty ? tracks.first : null,
             );
 
@@ -293,7 +323,6 @@ class _NativeVideoPlayerState extends State<NativeVideoPlayer> {
     final c = _videoPlayerController;
     if (c == null) return;
 
-    // Detect actual first frame rendered: verify decoder has parsed dimensions and started playback
     final hasValidSize = c.value.size.width > 0 && c.value.size.height > 0;
     if (!_hasFirstFrame &&
         c.value.isInitialized &&
@@ -302,11 +331,41 @@ class _NativeVideoPlayerState extends State<NativeVideoPlayer> {
       _hasFirstFrame = true;
       StreamingLogger.instance.log(
         stage: 'FirstFrame',
-        message: 'First video frame rendered successfully (${c.value.size.width.toInt()}x${c.value.size.height.toInt()})',
+        message:
+            'First video frame rendered (${c.value.size.width.toInt()}x${c.value.size.height.toInt()})',
         provider: widget.source.provider,
         streamUrl: widget.source.url,
       );
       widget.onFirstFrameRendered?.call();
+    }
+
+    // Periodically sync playback progress to Firestore via SyncService
+    if (c.value.isInitialized && c.value.duration > Duration.zero && c.value.isPlaying) {
+      final now = DateTime.now();
+      if (now.difference(_lastProgressSyncAt).inSeconds >= 3) {
+        _lastProgressSyncAt = now;
+        final contentId = widget.source.metadata['contentId'] as String?;
+        if (contentId != null && contentId.isNotEmpty) {
+          try {
+            final sync = context.read<SyncService>();
+            final season = widget.source.metadata['season'] as int?;
+            final episode = widget.source.metadata['episode'] as int?;
+            sync.scheduleProgress(
+              contentId: contentId,
+              positionSeconds: c.value.position.inSeconds.toDouble(),
+              durationSeconds: c.value.duration.inSeconds.toDouble(),
+              episodeId: (season != null && episode != null) ? 'S${season}E$episode' : null,
+              title: widget.title,
+              type: widget.source.metadata['type'] as String?,
+              posterUrl: widget.source.metadata['posterUrl'] as String?,
+              releaseDate: widget.source.metadata['releaseDate'] as String?,
+              rating: (widget.source.metadata['rating'] as num?)?.toDouble(),
+            );
+          } catch (_) {
+            // SyncService not mounted in diagnostics-only widget tree
+          }
+        }
+      }
     }
 
     if (c.value.hasError && mounted) {
@@ -319,9 +378,7 @@ class _NativeVideoPlayerState extends State<NativeVideoPlayer> {
         severity: LogSeverity.error,
         details: err,
       );
-      setState(() {
-        _errorMessage = err;
-      });
+      setState(() => _errorMessage = err);
     }
   }
 
@@ -352,14 +409,10 @@ class _NativeVideoPlayerState extends State<NativeVideoPlayer> {
 
   @override
   void dispose() {
+    _torrentSub?.cancel();
     _disposeControllers();
-    final url = widget.source.url ?? '';
-    final isMagnet = widget.source.type == StreamType.magnet || url.startsWith('magnet:?');
-    if (isMagnet && TorrentStreamer.isInitialised) {
-      try {
-        TorrentStreamer.stop();
-        TorrentStreamer.dispose();
-      } catch (_) {}
+    if (_isTorrentStream) {
+      unawaited(TorrentChannel.stopStream());
     }
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
@@ -386,10 +439,8 @@ class _NativeVideoPlayerState extends State<NativeVideoPlayer> {
       body: SafeArea(
         child: Stack(
           children: [
-            // 1. Chewie Player
             Chewie(controller: _chewieController!),
 
-            // 2. Synchronized Subtitle Overlay
             ValueListenableBuilder<VideoPlayerValue>(
               valueListenable: _videoPlayerController!,
               builder: (context, value, _) {
@@ -402,7 +453,32 @@ class _NativeVideoPlayerState extends State<NativeVideoPlayer> {
               },
             ),
 
-            // 3. Subtitles CC Quick Access Icon Button
+            // Live P2P Torrent Telemetry Pill
+            if (_isTorrentStream && _torrentProgress != null)
+              Positioned(
+                top: 12,
+                left: 12,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.purpleAccent.withValues(alpha: 0.4)),
+                  ),
+                  child: Text(
+                    'P2P ${_torrentProgress!.bufferPercent.toStringAsFixed(0)}% • '
+                    '${_torrentProgress!.formattedDownloadSpeed} • '
+                    '${_torrentProgress!.peers} peers',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+
+            // Subtitles CC Quick Access
             Positioned(
               top: 12,
               right: 12,
@@ -413,8 +489,12 @@ class _NativeVideoPlayerState extends State<NativeVideoPlayer> {
                 ),
                 child: IconButton(
                   icon: Icon(
-                    _selectedSubtitleTrack != null ? Icons.subtitles_rounded : Icons.subtitles_outlined,
-                    color: _selectedSubtitleTrack != null ? const Color(0xFFE50914) : Colors.white70,
+                    _selectedSubtitleTrack != null
+                        ? Icons.subtitles_rounded
+                        : Icons.subtitles_outlined,
+                    color: _selectedSubtitleTrack != null
+                        ? const Color(0xFFE50914)
+                        : Colors.white70,
                     size: 22,
                   ),
                   tooltip: 'Subtitles & Captions',
@@ -429,34 +509,78 @@ class _NativeVideoPlayerState extends State<NativeVideoPlayer> {
   }
 
   Widget _buildLoadingWidget() {
+    final p = _torrentProgress;
+    String statusText = 'Provider: ${widget.source.provider} • ${widget.source.quality ?? "HD"}';
+    if (_isTorrentStream) {
+      if (p == null || p.state == 'resolving_metadata') {
+        statusText = 'Connecting to DHT & Trackers for magnet metadata…';
+      } else {
+        statusText =
+            'Buffering P2P • ${p.bufferPercent.toStringAsFixed(1)}% • '
+            '${p.formattedDownloadSpeed} • ${p.peers} peers (${p.seeds} seeds)';
+      }
+    }
+
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(
-            width: 44,
-            height: 44,
-            child: CircularProgressIndicator(
-              strokeWidth: 3,
-              color: Color(0xFFE50914),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 44,
+              height: 44,
+              child: CircularProgressIndicator(
+                strokeWidth: 3,
+                color: Color(0xFFE50914),
+              ),
             ),
-          ),
-          const SizedBox(height: 18),
-          Text(
-            widget.title ?? 'Connecting to media stream…',
-            style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Provider: ${widget.source.provider} • ${widget.source.quality ?? "HD"}',
-            style: const TextStyle(color: Colors.white60, fontSize: 12),
-          ),
-        ],
+            const SizedBox(height: 18),
+            Text(
+              widget.title ?? 'Connecting to media stream…',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              statusText,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+            if (_isTorrentStream && p != null && p.fileName.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                p.fileName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white38, fontSize: 11),
+              ),
+            ],
+            if (_isTorrentStream) ...[
+              const SizedBox(height: 16),
+              SizedBox(
+                width: 220,
+                child: LinearProgressIndicator(
+                  value: (p != null && p.bufferPercent > 0)
+                      ? (p.bufferPercent / 100.0).clamp(0.0, 1.0)
+                      : null,
+                  color: const Color(0xFF8B5CF6),
+                  backgroundColor: Colors.white12,
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildErrorWidget(String error) {
+    final rawUrl = widget.source.url ?? '';
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(28),
@@ -483,8 +607,10 @@ class _NativeVideoPlayerState extends State<NativeVideoPlayer> {
               style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.3),
             ),
             const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 12,
+              runSpacing: 10,
               children: [
                 OutlinedButton.icon(
                   onPressed: () => Navigator.of(context).pop(),
@@ -495,13 +621,27 @@ class _NativeVideoPlayerState extends State<NativeVideoPlayer> {
                     side: const BorderSide(color: Colors.white30),
                   ),
                 ),
-                const SizedBox(width: 14),
                 FilledButton.icon(
                   onPressed: _retry,
                   icon: const Icon(Icons.refresh_rounded, size: 18),
                   label: const Text('Retry'),
                   style: FilledButton.styleFrom(backgroundColor: const Color(0xFFE50914)),
                 ),
+                if (rawUrl.isNotEmpty)
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final uri = Uri.tryParse(rawUrl);
+                      if (uri != null) {
+                        await launchUrl(uri, mode: LaunchMode.externalApplication);
+                      }
+                    },
+                    icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                    label: const Text('Open in External App'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white70,
+                      side: const BorderSide(color: Colors.white24),
+                    ),
+                  ),
               ],
             ),
           ],

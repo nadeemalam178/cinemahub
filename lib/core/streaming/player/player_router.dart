@@ -1,17 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
+
 import '../diagnostics/streaming_logger.dart';
 import '../models/stream_source.dart';
 import 'native_video_player.dart';
 import 'web_embed_player.dart';
 
 enum TargetPlayer {
-  nativePlayer,  // Chewie / ExoPlayer for MP4 and HLS with full headers
-  webPlayer,     // In-App WebView with ad-shielding for embeds
-  torrentNotice, // Informative notice explaining native torrent playback state
+  nativePlayer,    // Chewie / ExoPlayer for MP4, HLS, DASH, and native libtorrent4j P2P streams
+  webPlayer,       // In-App InAppWebView with ContentBlockers + Anti-Ad UserScript + Stream Sniffer
+  torrentNotice,   // Optional fallback sheet if external app dispatch is requested
   externalBrowser, // System browser for general websites/directories
-  unsupported,   // Diagnostic fallback
+  unsupported,     // Diagnostic fallback
 }
 
 class PlayerRoutingDecision {
@@ -35,17 +36,18 @@ class PlayerRouter {
 
   /// Determine target player and validate stream preconditions
   PlayerRoutingDecision route(StreamSource source) {
-    // 1. BitTorrent P2P Magnets - now routed directly to native torrent player!
+    // 1. BitTorrent P2P Magnets -> Native libtorrent4j + ExoPlayer
     if (source.type == StreamType.magnet ||
-        (source.url != null && source.url!.startsWith('magnet:?'))) {
+        (source.url != null && source.url!.toLowerCase().startsWith('magnet:?')) ||
+        (source.infoHash != null && source.infoHash!.isNotEmpty && (source.url ?? '').isEmpty)) {
       final decision = PlayerRoutingDecision(
         player: TargetPlayer.nativePlayer,
         source: source,
-        reason: 'BitTorrent P2P magnet link routed to internal Torrent Streamer.',
+        reason: 'BitTorrent P2P magnet link routed to internal libtorrent4j engine.',
       );
       StreamingLogger.instance.log(
         stage: 'PlayerRouter',
-        message: 'Routed to In-App Torrent Streamer',
+        message: 'Routed to In-App Native Torrent Streamer',
         provider: source.provider,
         streamUrl: source.url,
       );
@@ -72,7 +74,7 @@ class PlayerRouter {
       final decision = PlayerRoutingDecision(
         player: TargetPlayer.webPlayer,
         source: source,
-        reason: 'Embedded video stream routed to In-App Sandboxed Web Player.',
+        reason: 'Embedded video stream routed to Ad-Blocked In-App Web Player.',
       );
       StreamingLogger.instance.log(
         stage: 'PlayerRouter',
@@ -150,14 +152,33 @@ class PlayerRouter {
     return decision;
   }
 
-  /// Launch player route into Navigator
+  /// Launch player route into Navigator, enriching stream metadata for subtitles & sync.
   Future<void> navigateToPlayer({
     required BuildContext context,
     required StreamSource source,
     required String title,
     VoidCallback? onFirstFrame,
+    String? contentId,
+    String? imdbId,
+    String? contentType,
+    int? season,
+    int? episode,
+    String? posterUrl,
+    String? releaseDate,
+    double? rating,
   }) async {
-    final decision = route(source);
+    final enrichedMetadata = Map<String, dynamic>.from(source.metadata);
+    if (contentId != null && contentId.isNotEmpty) enrichedMetadata['contentId'] = contentId;
+    if (imdbId != null && imdbId.isNotEmpty) enrichedMetadata['imdb_id'] = imdbId;
+    if (contentType != null && contentType.isNotEmpty) enrichedMetadata['type'] = contentType;
+    if (season != null) enrichedMetadata['season'] = season;
+    if (episode != null) enrichedMetadata['episode'] = episode;
+    if (posterUrl != null && posterUrl.isNotEmpty) enrichedMetadata['posterUrl'] = posterUrl;
+    if (releaseDate != null && releaseDate.isNotEmpty) enrichedMetadata['releaseDate'] = releaseDate;
+    if (rating != null) enrichedMetadata['rating'] = rating;
+
+    final enrichedSource = source.copyWith(metadata: enrichedMetadata);
+    final decision = route(enrichedSource);
 
     switch (decision.player) {
       case TargetPlayer.nativePlayer:
@@ -167,7 +188,7 @@ class PlayerRouter {
             builder: (_) => Scaffold(
               backgroundColor: Colors.black,
               body: NativeVideoPlayer(
-                source: source,
+                source: enrichedSource,
                 title: title,
                 onFirstFrameRendered: onFirstFrame,
               ),
@@ -181,7 +202,7 @@ class PlayerRouter {
           context,
           MaterialPageRoute(
             builder: (_) => WebEmbedPlayer(
-              source: source,
+              source: enrichedSource,
               title: title,
               onFirstFrameRendered: onFirstFrame,
             ),
@@ -196,13 +217,13 @@ class PlayerRouter {
           shape: const RoundedRectangleBorder(
             borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
           ),
-          builder: (ctx) => _TorrentNoticeSheet(source: source),
+          builder: (ctx) => _TorrentNoticeSheet(source: enrichedSource),
         );
         break;
 
       case TargetPlayer.externalBrowser:
-        if (source.url != null && source.url!.isNotEmpty) {
-          final uri = Uri.tryParse(source.url!);
+        if (enrichedSource.url != null && enrichedSource.url!.isNotEmpty) {
+          final uri = Uri.tryParse(enrichedSource.url!);
           if (uri != null) {
             await launchUrl(uri, mode: LaunchMode.externalApplication);
           }
@@ -250,9 +271,7 @@ class _TorrentNoticeSheet extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           const Text(
-            'This is a BitTorrent P2P magnet link without a Debrid caching proxy. '
-            'In-app sequential torrent streaming is currently in development.\n\n'
-            'You can open this magnet in VLC, Nova Video Player, or any torrent app.',
+            'You can open this magnet link directly in VLC, Nova Video Player, or any torrent client.',
             style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
           ),
           const SizedBox(height: 18),

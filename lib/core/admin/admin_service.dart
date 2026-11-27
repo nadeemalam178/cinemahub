@@ -5,17 +5,10 @@ import 'package:flutter/foundation.dart';
 
 import '../auth/auth_service.dart';
 
-/// Owner-only admin dashboard service.
+/// Owner/admin management service.
 ///
-/// Responsibilities:
-///  * View all registered users.
-///  * Approve or suspend pending users.
-///  * Manage provider registry.
-///  * View provider health status.
-///  * Manage catalogue entries.
-///
-/// Security: This service is gated by Firestore rules. Client code can't
-/// promote itself to admin — that's enforced by rules.
+/// Security: All writes are gated by Firestore security rules and synchronized
+/// via `admin/userStatus/users/{uid}` -> Cloud Function `onUserStatusUpdate`.
 class AdminService extends ChangeNotifier {
   AdminService({
     required this._auth,
@@ -36,83 +29,170 @@ class AdminService extends ChangeNotifier {
       .collection('users')
       .snapshots()
       .map((snap) => snap.docs.map((doc) {
-        final data = doc.data();
-        data['uid'] ??= doc.id;
-        return data;
-      }).toList());
+            final data = Map<String, dynamic>.from(doc.data());
+            data['uid'] ??= doc.id;
+            return data;
+          }).toList());
 
   Stream<List<Map<String, dynamic>>>? _providerStream;
-  Stream<List<Map<String, dynamic>>> get providerStream => _providerStream ??= _firestore
-      .collection('providers')
-      .snapshots()
-      .map((snap) => snap.docs.map((doc) => doc.data()).toList());
+  Stream<List<Map<String, dynamic>>> get providerStream =>
+      _providerStream ??= _firestore
+          .collection('providers')
+          .snapshots()
+          .map((snap) => snap.docs.map((doc) {
+                final data = Map<String, dynamic>.from(doc.data());
+                data['id'] ??= doc.id;
+                return data;
+              }).toList());
 
   Future<void> checkAdminStatus() async {
     final user = _auth.user;
-    if (user == null) return;
+    if (user == null) {
+      reset();
+      return;
+    }
     try {
       final doc = await _firestore.collection('users').doc(user.uid).get();
       final role = doc.data()?['role'] as String?;
       _isAdmin = role == 'admin' || role == 'owner';
       notifyListeners();
     } catch (_) {
-      _isAdmin = false;
+      _isAdmin = _auth.isAdmin;
       notifyListeners();
     }
   }
 
-  Future<void> approveUser(String userId) async {
-    if (!_isAdmin) throw AdminPermissionException('Not admin');
-    await _firestore.collection('users').doc(userId).update({
+  void reset() {
+    _isAdmin = false;
+    notifyListeners();
+  }
+
+  Future<String> _resolveExistingRole(String userId, {String? overrideRole}) async {
+    if (overrideRole != null &&
+        (overrideRole == 'user' || overrideRole == 'admin' || overrideRole == 'owner')) {
+      return overrideRole;
+    }
+    final userSnap = await _firestore.collection('users').doc(userId).get();
+    final existing = userSnap.data()?['role'] as String?;
+    if (existing == 'admin' || existing == 'owner' || existing == 'user') {
+      return existing!;
+    }
+    return 'user';
+  }
+
+  Future<void> approveUser(String userId, {String? role}) async {
+    if (!_isAdmin && !_auth.isAdmin) {
+      throw AdminPermissionException('Not admin');
+    }
+    final resolvedRole = await _resolveExistingRole(userId, overrideRole: role);
+
+    await _firestore.collection('users').doc(userId).set({
       'status': 'approved',
+      'role': resolvedRole,
       'approvedAt': FieldValue.serverTimestamp(),
       'approvedBy': _auth.user?.uid,
-    });
-    // Synchronize admin status document so Cloud Function triggers custom claims
-    try {
-      await _firestore
+    }, SetOptions(merge: true));
+
+    await Future.wait([
+      _firestore
           .collection('admin')
           .doc('userStatus')
           .collection('users')
           .doc(userId)
           .set({
         'status': 'approved',
-        'role': 'user',
+        'role': resolvedRole,
         'updatedBy': _auth.user?.uid,
         'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-    } catch (e) {
-      debugPrint('Admin status collection sync note: $e');
-    }
+      }, SetOptions(merge: true)).catchError((e) {
+        debugPrint('Admin status collection sync note: $e');
+      }),
+      _firestore.collection('accessRequests').doc(userId).set({
+        'status': 'approved',
+        'updatedBy': _auth.user?.uid,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true)).catchError((e) {
+        debugPrint('Access request sync note: $e');
+      }),
+    ]);
   }
 
   Future<void> suspendUser(String userId) async {
-    if (!_isAdmin) throw AdminPermissionException('Not admin');
-    await _firestore.collection('users').doc(userId).update({
+    if (!_isAdmin && !_auth.isAdmin) {
+      throw AdminPermissionException('Not admin');
+    }
+    final resolvedRole = await _resolveExistingRole(userId);
+    if (resolvedRole == 'owner' && _auth.role != 'owner') {
+      throw AdminPermissionException('Only an owner can suspend an owner');
+    }
+
+    await _firestore.collection('users').doc(userId).set({
       'status': 'suspended',
       'suspendedAt': FieldValue.serverTimestamp(),
       'suspendedBy': _auth.user?.uid,
-    });
-    // Synchronize admin status document so Cloud Function triggers custom claims
-    try {
-      await _firestore
+    }, SetOptions(merge: true));
+
+    await Future.wait([
+      _firestore
           .collection('admin')
           .doc('userStatus')
           .collection('users')
           .doc(userId)
           .set({
         'status': 'suspended',
-        'role': 'user',
+        'role': resolvedRole,
         'updatedBy': _auth.user?.uid,
         'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-    } catch (e) {
-      debugPrint('Admin status collection sync note: $e');
+      }, SetOptions(merge: true)).catchError((e) {
+        debugPrint('Admin status collection sync note: $e');
+      }),
+      _firestore.collection('accessRequests').doc(userId).set({
+        'status': 'suspended',
+        'updatedBy': _auth.user?.uid,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true)).catchError((e) {
+        debugPrint('Access request sync note: $e');
+      }),
+    ]);
+  }
+
+  Future<void> setUserRole(String userId, String role) async {
+    if (!_isAdmin && !_auth.isAdmin) {
+      throw AdminPermissionException('Not admin');
     }
+    if (role == 'owner' && _auth.role != 'owner') {
+      throw AdminPermissionException('Only an owner can assign owner role');
+    }
+    if (role != 'user' && role != 'admin' && role != 'owner') {
+      throw ArgumentError('Unsupported role: $role');
+    }
+
+    final userSnap = await _firestore.collection('users').doc(userId).get();
+    final currentStatus = (userSnap.data()?['status'] as String?) ?? 'approved';
+
+    await _firestore.collection('users').doc(userId).set({
+      'role': role,
+      'updatedBy': _auth.user?.uid,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    await _firestore
+        .collection('admin')
+        .doc('userStatus')
+        .collection('users')
+        .doc(userId)
+        .set({
+      'status': currentStatus,
+      'role': role,
+      'updatedBy': _auth.user?.uid,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   Future<void> enableProvider(String providerId) async {
-    if (!_isAdmin) throw AdminPermissionException('Not admin');
+    if (!_isAdmin && !_auth.isAdmin) {
+      throw AdminPermissionException('Not admin');
+    }
     await _firestore.collection('providers').doc(providerId).update({
       'enabled': true,
       'enabledAt': FieldValue.serverTimestamp(),
@@ -121,7 +201,9 @@ class AdminService extends ChangeNotifier {
   }
 
   Future<void> disableProvider(String providerId) async {
-    if (!_isAdmin) throw AdminPermissionException('Not admin');
+    if (!_isAdmin && !_auth.isAdmin) {
+      throw AdminPermissionException('Not admin');
+    }
     await _firestore.collection('providers').doc(providerId).update({
       'enabled': false,
       'disabledAt': FieldValue.serverTimestamp(),

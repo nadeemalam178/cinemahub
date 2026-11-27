@@ -1,12 +1,14 @@
 import 'dart:async';
+
+import 'package:chewie/chewie.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:chewie/chewie.dart';
-import 'package:video_player/video_player.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:torrent_streamer/torrent_streamer.dart';
+import 'package:video_player/video_player.dart';
 
 import '../../core/providers/stremio_adapter.dart';
+import '../../core/streaming/models/stream_source.dart';
+import '../../core/streaming/player/torrent_channel.dart';
 import '../../core/theme/cinemahub_colors.dart';
 import '../../core/theme/cinemahub_tokens.dart';
 import 'in_app_adblocked_player.dart';
@@ -37,10 +39,13 @@ class _CinemaPlayerState extends State<CinemaPlayer>
   VideoPlayerController? _controller;
   late final AnimationController _fadeController;
   ChewieController? _chewieController;
+  StreamSubscription<TorrentProgress>? _torrentSub;
+
   bool _ready = false;
   bool _errored = false;
   Exception? _lastError;
   bool _fallbackToEmbed = false;
+  bool _isTorrent = false;
   String? _statusText;
 
   @override
@@ -66,8 +71,25 @@ class _CinemaPlayerState extends State<CinemaPlayer>
       return;
     }
 
+    final initialUri = uri;
     final isWebEmbed = widget.stream.behaviorHints?['isWebEmbed'] == true;
-    final isMagnet = widget.stream.type == 'application/x-bittorrent' || widget.stream.behaviorHints?['isTorrent'] == true || url.startsWith('magnet:');
+    final isMagnet = widget.stream.type == 'application/x-bittorrent' ||
+        widget.stream.behaviorHints?['isTorrent'] == true ||
+        url.toLowerCase().startsWith('magnet:');
+    _isTorrent = isMagnet;
+
+    if (!isMagnet &&
+        !isWebEmbed &&
+        initialUri.scheme != 'http' &&
+        initialUri.scheme != 'https') {
+      if (mounted) {
+        setState(() {
+          _errored = true;
+          _lastError = Exception('Unsupported URL scheme: ${initialUri.scheme}');
+        });
+      }
+      return;
+    }
 
     try {
       final rawHeaders = widget.stream.behaviorHints?['headers'];
@@ -79,34 +101,48 @@ class _CinemaPlayerState extends State<CinemaPlayer>
       }
 
       if (isMagnet) {
-        if (mounted) setState(() => _statusText = 'Starting Torrent Streamer...');
+        if (mounted) {
+          setState(() => _statusText = 'Starting native libtorrent4j engine...');
+        }
 
-        await TorrentStreamer.init();
-        await TorrentStreamer.start(url);
-
-        final completer = Completer<String>();
-        TorrentStreamer.addEventListener('ready', (_) async {
-           if (!completer.isCompleted) {
-             final streamUrl = await TorrentStreamer.getStreamUrl();
-             completer.complete(streamUrl);
-           }
+        final readyCompleter = Completer<void>();
+        _torrentSub = TorrentChannel.progressStream.listen((progress) {
+          if (!mounted) return;
+          setState(() {
+            _statusText = progress.state == 'resolving_metadata'
+                ? 'Fetching magnet metadata...'
+                : 'Buffering P2P ${progress.bufferPercent.toStringAsFixed(0)}% • '
+                    '${progress.formattedDownloadSpeed} • ${progress.peers} peers';
+          });
+          if (progress.state == 'error' && !readyCompleter.isCompleted) {
+            readyCompleter.completeError(
+              Exception(progress.error ?? 'Torrent engine failed'),
+            );
+          } else if (progress.readyForPlayback && !readyCompleter.isCompleted) {
+            readyCompleter.complete();
+          }
         });
-        TorrentStreamer.addEventListener('error', (err) {
-           if (!completer.isCompleted) completer.completeError(Exception('Torrent failed: $err'));
-        });
 
-        // Wait up to 30 seconds for buffering
-        url = await completer.future.timeout(const Duration(seconds: 30));
+        final started = await TorrentChannel.startStream(
+          StreamSource.ensureTrackers(url),
+          fileIndex: widget.stream.fileIndex,
+        );
+        url = started.streamUrl;
         uri = Uri.parse(url);
 
+        final snapshot = await TorrentChannel.getStatus();
+        if (snapshot?.readyForPlayback != true && !readyCompleter.isCompleted) {
+          await readyCompleter.future.timeout(const Duration(seconds: 90));
+        }
       } else if (isWebEmbed) {
-        if (mounted) setState(() => _statusText = 'Bypassing Ads & Extracting Video...');
+        if (mounted) {
+          setState(() => _statusText = 'Bypassing Ads & Extracting Video...');
+        }
         final extractedUrl = await M3u8Interceptor.extract(url, headers: headers);
         if (extractedUrl != null && extractedUrl.isNotEmpty) {
           url = extractedUrl;
           uri = Uri.parse(url);
         } else {
-          // Fallback to web embed
           if (mounted) {
             setState(() {
               _fallbackToEmbed = true;
@@ -121,7 +157,7 @@ class _CinemaPlayerState extends State<CinemaPlayer>
 
       final controller = VideoPlayerController.networkUrl(
         uri,
-        httpHeaders: headers,
+        httpHeaders: isMagnet ? const {} : headers,
       );
       _controller = controller;
       await controller.initialize();
@@ -136,7 +172,7 @@ class _CinemaPlayerState extends State<CinemaPlayer>
         autoPlay: true,
         looping: false,
         aspectRatio: ratio > 0 ? ratio : 16 / 9,
-        deviceOrientationsAfterFullScreen: [
+        deviceOrientationsAfterFullScreen: const [
           DeviceOrientation.landscapeLeft,
           DeviceOrientation.landscapeRight,
         ],
@@ -157,6 +193,9 @@ class _CinemaPlayerState extends State<CinemaPlayer>
       widget.onPlayStarted?.call();
       _fadeController.forward();
     } catch (e) {
+      if (_isTorrent) {
+        unawaited(TorrentChannel.stopStream());
+      }
       if (!mounted) return;
       setState(() {
         _errored = true;
@@ -174,16 +213,13 @@ class _CinemaPlayerState extends State<CinemaPlayer>
 
   @override
   void dispose() {
+    _torrentSub?.cancel();
     _controller?.removeListener(_onVideoChanged);
     _controller?.dispose();
     _chewieController?.dispose();
     _fadeController.dispose();
-    final isMagnet = widget.stream.type == 'application/x-bittorrent' || widget.stream.behaviorHints?['isTorrent'] == true || widget.stream.url.startsWith('magnet:');
-    if (isMagnet && TorrentStreamer.isInitialised) {
-       try {
-         TorrentStreamer.stop();
-         TorrentStreamer.dispose();
-       } catch (_) {}
+    if (_isTorrent) {
+      unawaited(TorrentChannel.stopStream());
     }
     super.dispose();
   }
@@ -191,8 +227,7 @@ class _CinemaPlayerState extends State<CinemaPlayer>
   @override
   Widget build(BuildContext context) {
     if (_errored) {
-      final builder =
-          widget.errorBuilder ??
+      final builder = widget.errorBuilder ??
           (e) => _ErrorFallback(
                 error: e.toString(),
                 stream: widget.stream,
