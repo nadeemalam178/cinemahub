@@ -28,6 +28,21 @@ subprojects {
 
 subprojects {
     project.evaluationDependsOn(":app")
+    afterEvaluate {
+        if (project.plugins.hasPlugin("com.android.library")) {
+            val androidExt = project.extensions.findByType(com.android.build.gradle.LibraryExtension::class.java)
+            androidExt?.buildTypes?.all {
+                val updatedFiles = proguardFiles.map { file ->
+                    if (file.name == "proguard-android.txt") {
+                        androidExt.getDefaultProguardFile("proguard-android-optimize.txt")
+                    } else {
+                        file
+                    }
+                }
+                setProguardFiles(updatedFiles)
+            }
+        }
+    }
 }
 
 tasks.register<Delete>("clean") {
