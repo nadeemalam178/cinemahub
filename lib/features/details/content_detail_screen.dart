@@ -144,7 +144,7 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
     final text = link.isNotEmpty
         ? 'Watch ${widget.title}$year on CinemaHub\n$link'
         : 'Check out ${widget.title}$year on CinemaHub';
-    await SharePlus.instance.share(ShareParams(text: text, subject: widget.title));
+    await Share.share(text, subject: widget.title);
   }
 
   Future<void> _loadMetaAndStreams() async {
