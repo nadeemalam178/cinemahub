@@ -50,6 +50,13 @@ jobs:
         run: |
           echo "$KEYSTORE_BASE64" | base64 --decode > android/app/debug.keystore
 
+      - name: Create local.properties
+        run: |
+          echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
+          echo "flutter.buildMode=release" >> android/local.properties
+          echo "flutter.versionName=1.1.0" >> android/local.properties
+          echo "flutter.versionCode=2" >> android/local.properties
+
       - name: Build APK (Release, split per ABI)
         env:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
