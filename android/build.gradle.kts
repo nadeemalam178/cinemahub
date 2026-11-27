@@ -14,6 +14,14 @@ rootProject.layout.buildDirectory.value(newBuildDir)
 subprojects {
     val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
     project.layout.buildDirectory.value(newSubprojectBuildDir)
+
+    if (name == "flutter_inappwebview_android") {
+        afterEvaluate {
+            extensions.findByType(com.android.build.api.dsl.LibraryExtension::class.java)?.apply {
+                buildTypes.findByName("release")?.isMinifyEnabled = false
+            }
+        }
+    }
 }
 
 tasks.register<Delete>("clean") {

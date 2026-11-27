@@ -6,13 +6,9 @@ plugins {
     id("com.google.gms.google-services")
 }
 
-flutter {
-    source = "../.."
-}
-
-android {
+configure<com.android.build.api.dsl.ApplicationExtension> {
     namespace = "com.cinemahub.app"
-    compileSdk = 35
+    compileSdk = maxOf(flutter.compileSdkVersion, 37)
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -23,10 +19,10 @@ android {
 
     defaultConfig {
         applicationId = "com.cinemahub.app"
-        minSdk = 24
-        targetSdk = 35
-        versionCode = 2
-        versionName = "1.1.0"
+        minSdk = maxOf(flutter.minSdkVersion, 24)
+        targetSdk = flutter.targetSdkVersion
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
     }
 
     signingConfigs {
@@ -55,10 +51,10 @@ android {
             )
         }
     }
+}
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
+flutter {
+    source = "../.."
 }
 
 dependencies {

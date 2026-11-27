@@ -29,6 +29,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          flutter-version: '3.50.1'
           cache: false
 
       - name: Accept Android SDK licenses
@@ -44,11 +45,12 @@ jobs:
         run: flutter test
 
       - name: Setup Keystore
-        if: env.KEYSTORE_BASE64 != ''
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
-          echo "$KEYSTORE_BASE64" | base64 --decode > android/app/debug.keystore
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 --decode > android/app/debug.keystore
+          fi
 
       - name: Create local.properties
         run: |
@@ -59,6 +61,7 @@ jobs:
 
       - name: Build APK (Release, split per ABI)
         env:
+          GRADLE_OPTS: '-Dorg.gradle.daemon=false'
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
           GOOGLE_SERVER_CLIENT_ID: ${{ secrets.GOOGLE_SERVER_CLIENT_ID }}
           FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
@@ -71,7 +74,6 @@ jobs:
           flutter build apk --release \
             --split-per-abi \
             --no-tree-shake-icons \
-            --android-skip-build-dependency-validation \
             --dart-define=TMDB_API_KEY="${TMDB_API_KEY:-placeholder_tmdb_key}" \
             --dart-define=GOOGLE_SERVER_CLIENT_ID="${GOOGLE_SERVER_CLIENT_ID:-placeholder_client_id}" \
             --dart-define=FIREBASE_API_KEY="${FIREBASE_API_KEY:-placeholder_firebase_key}" \
