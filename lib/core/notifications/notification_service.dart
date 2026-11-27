@@ -47,7 +47,7 @@ class NotificationService {
     );
 
     await _localNotifs.initialize(
-      settings: initSettings,
+      initSettings,
       onDidReceiveNotificationResponse: (response) {
         debugPrint('Notification clicked: ${response.payload}');
       },
@@ -141,10 +141,10 @@ class NotificationService {
     );
 
     await _localNotifs.show(
-      id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      title: title,
-      body: body,
-      notificationDetails: notifDetails,
+      DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      title,
+      body,
+      notifDetails,
       payload: payload,
     );
   }
