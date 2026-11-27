@@ -6,6 +6,10 @@ plugins {
     id("com.google.gms.google-services")
 }
 
+flutter {
+    source = "../.."
+}
+
 android {
     namespace = "com.cinemahub.app"
     compileSdk = 35
@@ -55,10 +59,6 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
-}
-
-flutter {
-    source = "../.."
 }
 
 dependencies {
