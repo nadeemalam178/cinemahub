@@ -71,6 +71,7 @@ jobs:
           flutter build apk --release \
             --split-per-abi \
             --no-tree-shake-icons \
+            --android-skip-build-dependency-validation \
             --dart-define=TMDB_API_KEY="${TMDB_API_KEY:-placeholder_tmdb_key}" \
             --dart-define=GOOGLE_SERVER_CLIENT_ID="${GOOGLE_SERVER_CLIENT_ID:-placeholder_client_id}" \
             --dart-define=FIREBASE_API_KEY="${FIREBASE_API_KEY:-placeholder_firebase_key}" \
